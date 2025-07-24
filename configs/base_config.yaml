@@ -1,0 +1,51 @@
+# Base configuration for evaluation pipeline
+# This file contains default settings that can be overridden by dataset-specific configs
+
+# Data paths (relative to working directory)
+data:
+  samples_path: "samples.npz"  # Path to synthetic sequences
+  dataset_path: "dataset.h5"   # Path to dataset (X_test, X_train, etc.)
+  oracle_path: "oracle_model.ckpt"  # Path to oracle model checkpoint
+  motif_database_path: "JASPAR2024_CORE_non-redundant_pfms_meme.txt"  # Path to motif database
+
+# Model configuration
+model:
+  type: "deepstarr"  # Type of oracle model
+  embedding_layer: "model.batchnorm6"  # Layer for extracting embeddings
+
+# Evaluation settings
+evaluation:
+  # Which evaluations to run
+  run_functional_similarity: true
+  run_sequence_similarity: true  
+  run_compositional_similarity: true
+  
+  # Batch sizes for computation
+  batch_size: 2000
+  prediction_batch_size: 128
+  
+  # K-mer analysis settings
+  kmer_lengths: [3, 4, 5]
+  
+  # Attribution analysis settings
+  attribution_max_samples: 1000  # Max samples for attribution analysis (computational limit)
+  
+  # Discriminatability settings
+  discriminatability_output: "discriminatability_data.h5"
+
+# Output settings
+output:
+  results_dir: "results"  # Directory to save results
+  format: "pickle"  # Format for saving results ("pickle" or "json")
+  include_metadata: true  # Whether to include evaluation metadata
+
+# Computational settings
+compute:
+  device: "auto"  # "auto", "cpu", or "cuda"
+  num_workers: 4  # Number of workers for data loading
+  random_seed: 42  # Random seed for reproducibility
+
+# Logging settings
+logging:
+  level: "INFO"  # Logging level
+  save_logs: true  # Whether to save logs to file
