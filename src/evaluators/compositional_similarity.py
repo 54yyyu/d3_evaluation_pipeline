@@ -14,8 +14,8 @@ import tempfile
 import os
 from pathlib import Path
 from .base_evaluator import BaseEvaluator
-from ..data.data_utils import one_hot_to_sequences, create_fasta_file
-from ..models.model_utils import ModelWrapper
+from src.data.data_utils import one_hot_to_sequences, create_fasta_file
+from src.models.model_utils import ModelWrapper
 
 
 class CompositionalSimilarityEvaluator(BaseEvaluator):

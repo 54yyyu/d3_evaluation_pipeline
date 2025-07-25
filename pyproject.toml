@@ -1,0 +1,90 @@
+[build-system]
+requires = ["setuptools>=61", "setuptools-scm", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "d3-evaluation-pipeline"
+version = "0.1.0"
+description = "Comprehensive evaluation pipeline for synthetic DNA sequences"
+authors = [
+    {name = "D3 Analysis Team", email = ""}
+]
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.8"
+keywords = ["bioinformatics", "DNA sequences", "evaluation", "machine learning", "synthetic biology"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+dependencies = [
+    "torch>=1.9.0",
+    "pytorch-lightning>=1.9.0", 
+    "numpy>=1.21.0",
+    "pandas>=1.3.0",
+    "scipy>=1.7.0",
+    "scikit-learn>=1.0.0",
+    "h5py>=3.1.0",
+    "biopython>=1.78",
+    "tqdm>=4.62.0",
+    "pyyaml>=6.0",
+    "matplotlib>=3.5.0"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=6.2.0",
+    "pytest-cov>=3.0.0",
+    "black>=22.0.0",
+    "flake8>=4.0.0",
+    "isort>=5.10.0"
+]
+motif-analysis = [
+    "pymemesuite>=0.1.0",
+    "tangermeme>=0.3.0"
+]
+attribution = [
+    "captum>=0.5.0",
+    "logomaker>=0.8"
+]
+visualization = [
+    "matplotlib>=3.5.0",
+    "seaborn>=0.11.0",
+    "plotly>=5.0.0"
+]
+all = [
+    "pymemesuite>=0.1.0",
+    "tangermeme>=0.3.0", 
+    "captum>=0.5.0",
+    "logomaker>=0.8",
+    "matplotlib>=3.5.0",
+    "seaborn>=0.11.0",
+    "plotly>=5.0.0"
+]
+
+[project.scripts]
+evaluate-single = "scripts.run_single_evaluation:main"
+evaluate-full = "scripts.run_full_pipeline:main"
+
+[project.urls]
+"Bug Reports" = "https://github.com/your-org/d3-analysis/issues"
+"Source" = "https://github.com/your-org/d3-analysis"
+"Documentation" = "https://github.com/your-org/d3-analysis/blob/main/README.md"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"*" = ["configs/*.yaml", "*.md", "*.txt"]

@@ -41,19 +41,16 @@ def parse_arguments():
     parser.add_argument(
         "--samples-path",
         type=str,
-        required=True,
         help="Path to synthetic sequences (NPZ file)"
     )
     parser.add_argument(
         "--dataset-path", 
         type=str,
-        required=True,
         help="Path to dataset (H5 file)"
     )
     parser.add_argument(
         "--oracle-path",
         type=str,
-        required=True,
         help="Path to oracle model checkpoint"
     )
     parser.add_argument(
@@ -145,8 +142,27 @@ def parse_arguments():
     return parser.parse_args()
 
 
+def validate_required_args(args):
+    """Validate that required arguments are provided when config file is not used."""
+    if not args.config:
+        required_args = ['samples_path', 'dataset_path', 'oracle_path']
+        missing_args = []
+        
+        for arg in required_args:
+            if not getattr(args, arg.replace('-', '_')):
+                missing_args.append(f"--{arg.replace('_', '-')}")
+        
+        if missing_args:
+            raise ValueError(
+                f"The following arguments are required when no config file is provided: {', '.join(missing_args)}"
+            )
+
+
 def load_configuration(args):
     """Load and configure the evaluation configuration."""
+    # Validate required arguments if no config file provided
+    validate_required_args(args)
+    
     # Load base configuration
     if args.config:
         config_manager = ConfigManager(args.config)
@@ -155,17 +171,27 @@ def load_configuration(args):
         config_manager = ConfigManager()
         config_manager.config = config
     
-    # Update configuration with command line arguments
-    config_manager.update(
-        samples_path=args.samples_path,
-        dataset_path=args.dataset_path,
-        oracle_path=args.oracle_path,
-        motif_database_path=args.motif_database_path,
-        results_dir=args.output_dir,
-        batch_size=args.batch_size,
-        device=args.device,
-        random_seed=args.seed
-    )
+    # Update configuration with command line arguments (only if provided)
+    update_kwargs = {}
+    if args.samples_path:
+        update_kwargs['samples_path'] = args.samples_path
+    if args.dataset_path:
+        update_kwargs['dataset_path'] = args.dataset_path
+    if args.oracle_path:
+        update_kwargs['oracle_path'] = args.oracle_path
+    if args.motif_database_path:
+        update_kwargs['motif_database_path'] = args.motif_database_path
+    if args.output_dir != "results":  # Only update if changed from default
+        update_kwargs['results_dir'] = args.output_dir
+    if args.batch_size:
+        update_kwargs['batch_size'] = args.batch_size
+    if args.device != "auto":  # Only update if changed from default
+        update_kwargs['device'] = args.device
+    if args.seed != 42:  # Only update if changed from default
+        update_kwargs['random_seed'] = args.seed
+    
+    if update_kwargs:
+        config_manager.update(**update_kwargs)
     
     # Update evaluation flags
     config_manager.set('evaluation.run_functional_similarity', not args.skip_functional)
@@ -361,12 +387,19 @@ def main():
         
         # Validate required files exist
         from utils.common_utils import validate_file_exists
-        validate_file_exists(args.samples_path, "Samples file")
-        validate_file_exists(args.dataset_path, "Dataset file")
-        validate_file_exists(args.oracle_path, "Oracle model")
         
-        if args.motif_database_path:
-            validate_file_exists(args.motif_database_path, "Motif database")
+        # Get paths from config or args
+        samples_path = args.samples_path or config_manager.get('data.samples_path')
+        dataset_path = args.dataset_path or config_manager.get('data.dataset_path')
+        oracle_path = args.oracle_path or config_manager.get('data.oracle_path')
+        motif_database_path = args.motif_database_path or config_manager.get('data.motif_database_path')
+        
+        validate_file_exists(samples_path, "Samples file")
+        validate_file_exists(dataset_path, "Dataset file")  
+        validate_file_exists(oracle_path, "Oracle model")
+        
+        if motif_database_path:
+            validate_file_exists(motif_database_path, "Motif database")
         
         # Load data and model
         x_test, x_synthetic, x_train, oracle_model = load_data_and_model(config_manager)

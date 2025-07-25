@@ -40,13 +40,11 @@ def parse_arguments():
     parser.add_argument(
         "--samples-path",
         type=str,
-        required=True,
         help="Path to synthetic sequences (NPZ file)"
     )
     parser.add_argument(
         "--dataset-path", 
         type=str,
-        required=True,
         help="Path to dataset (H5 file)"
     )
     parser.add_argument(
@@ -121,8 +119,31 @@ def parse_arguments():
     return parser.parse_args()
 
 
+def validate_required_args(args):
+    """Validate that required arguments are provided when config file is not used."""
+    if not args.config:
+        required_args = ['samples_path', 'dataset_path']
+        missing_args = []
+        
+        for arg in required_args:
+            if not getattr(args, arg.replace('-', '_')):
+                missing_args.append(f"--{arg.replace('_', '-')}")
+        
+        # Oracle path is required for functional and compositional similarity
+        if args.evaluation_type in ['functional', 'compositional'] and not args.oracle_path:
+            missing_args.append("--oracle-path")
+        
+        if missing_args:
+            raise ValueError(
+                f"The following arguments are required when no config file is provided: {', '.join(missing_args)}"
+            )
+
+
 def load_configuration(args):
     """Load and configure the evaluation configuration."""
+    # Validate required arguments if no config file provided
+    validate_required_args(args)
+    
     # Load base configuration
     if args.config:
         config_manager = ConfigManager(args.config)
@@ -131,17 +152,27 @@ def load_configuration(args):
         config_manager = ConfigManager()
         config_manager.config = config
     
-    # Update configuration with command line arguments
-    config_manager.update(
-        samples_path=args.samples_path,
-        dataset_path=args.dataset_path,
-        oracle_path=args.oracle_path,
-        motif_database_path=args.motif_database_path,
-        results_dir=args.output_dir,
-        batch_size=args.batch_size,
-        device=args.device,
-        random_seed=args.seed
-    )
+    # Update configuration with command line arguments (only if provided)
+    update_kwargs = {}
+    if args.samples_path:
+        update_kwargs['samples_path'] = args.samples_path
+    if args.dataset_path:
+        update_kwargs['dataset_path'] = args.dataset_path
+    if args.oracle_path:
+        update_kwargs['oracle_path'] = args.oracle_path
+    if args.motif_database_path:
+        update_kwargs['motif_database_path'] = args.motif_database_path
+    if args.output_dir != "results":  # Only update if changed from default
+        update_kwargs['results_dir'] = args.output_dir
+    if args.batch_size:
+        update_kwargs['batch_size'] = args.batch_size
+    if args.device != "auto":  # Only update if changed from default
+        update_kwargs['device'] = args.device
+    if args.seed != 42:  # Only update if changed from default
+        update_kwargs['random_seed'] = args.seed
+    
+    if update_kwargs:
+        config_manager.update(**update_kwargs)
     
     # Resolve paths
     config_manager.resolve_paths()
