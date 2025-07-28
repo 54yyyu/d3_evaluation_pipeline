@@ -34,9 +34,12 @@ except (ImportError, ValueError):
             USE_MEMELITE = False
 
 # Always import pymemesuite as fallback
-from pymemesuite import fimo
-from pymemesuite.common import MotifFile, Sequence
-from pymemesuite.fimo import FIMO
+try:
+    from pymemesuite import fimo
+    from pymemesuite.common import MotifFile, Sequence
+    from pymemesuite.fimo import FIMO
+except ImportError as e:
+    print(f"Warning: Failed to import pymemesuite: {e}")
 from Bio import SeqIO
 import glob
 import tempfile
@@ -132,8 +135,8 @@ example:
 def predictive_distribution_shift(x_synthetic_tensor, x_test_tensor):
     
     #encode bases using 0,1,2,3 (eliminate a dimension)
-    base_indices_test = np.argmax(x_test_tensor.detach().numpy(), axis=1)
-    base_indices_syn = np.argmax(x_synthetic_tensor.detach().numpy(), axis=1)
+    base_indices_test = np.argmax(x_test_tensor.detach().cpu().numpy(), axis=1)
+    base_indices_syn = np.argmax(x_synthetic_tensor.detach().cpu().numpy(), axis=1)
 
     #flatten the arrays (now they are one dimension)
     base_indices_test_f = base_indices_test.flatten()
@@ -168,7 +171,8 @@ def calculate_cross_sequence_identity_batch(X_train, X_test, batch_size):
     seq_identity = np.zeros((num_train, num_test)).astype(np.int8)
     
     # Process the training data in batches
-    for start_idx in tqdm(range(0, num_train, batch_size)):
+    total_batches = (num_train + batch_size - 1) // batch_size
+    for start_idx in tqdm(range(0, num_train, batch_size), desc="Computing sequence identity", total=total_batches):
         end_idx = min(start_idx + batch_size, num_train)
         
         # Compute the dot product for this batch
@@ -218,7 +222,7 @@ def compute_kmer_spectra(
     # convert one hot to A,C,G,T
     seq_list = []
 
-    for index in tqdm(range(len(X))): #for loop is what actually converts a list of one-hot encoded sequences into ACGT
+    for index in tqdm(range(len(X)), desc="Converting sequences to text"): #for loop is what actually converts a list of one-hot encoded sequences into ACGT
 
         seq = X[index]
 
@@ -323,7 +327,7 @@ example:
 '''
 
 def prep_data_for_classification(x_test_tensor, x_synthetic_tensor):
-    x_train = np.vstack([x_test_tensor.detach().numpy(), x_synthetic_tensor.detach().numpy()])
+    x_train = np.vstack([x_test_tensor.detach().cpu().numpy(), x_synthetic_tensor.detach().cpu().numpy()])
     y_train = np.vstack([np.ones((x_test_tensor.shape[0],1)), np.zeros((x_synthetic_tensor.shape[0],1))])
     x_train = np.transpose(x_train, (0, 2, 1)) 
 
@@ -367,7 +371,7 @@ def sequences_to_onehot(sequences):
     # Initialize one-hot array (N, A, L) where N=num_sequences, A=4 nucleotides, L=sequence_length
     onehot = np.zeros((len(sequences), 4, max_length))
     
-    for i, seq in enumerate(sequences):
+    for i, seq in tqdm(enumerate(sequences), desc="Converting to one-hot", total=len(sequences)):
         for j, nucleotide in enumerate(seq.upper()):
             if nucleotide in nucleotide_to_index:
                 onehot[i, nucleotide_to_index[nucleotide], j] = 1
@@ -390,8 +394,9 @@ def motif_count(path, path_to_database):
             
             onehot_seqs = sequences_to_onehot(sequences)
             return motif_count_memelite(path_to_database, onehot_seqs)
-        except Exception:
+        except Exception as e:
             # Fall back to pymemesuite if memelite fails
+            print(f"Warning: memelite failed ({e}), falling back to pymemesuite")
             pass
     
     # Original pymemesuite implementation
@@ -403,9 +408,15 @@ def motif_count(path, path_to_database):
         for record in Bio.SeqIO.parse(path, "fasta")
         ]
     
-    fimo = FIMO() 
+    try:
+        fimo = FIMO() 
+    except Exception as e:
+        raise RuntimeError(f"Failed to initialize FIMO: {e}. Check that FIMO class is properly imported.")
+        
     with MotifFile("JASPAR2024_CORE_non-redundant_pfms_meme.txt") as motif_file:
-        for motif in motif_file: 
+        motifs_list = list(motif_file)
+        motif_file.seek(0)  # Reset to beginning for actual processing
+        for motif in tqdm(motifs_list, desc="Scanning motifs"):
             pattern = fimo.score_motif(motif, sequences, motif_file.background)
             motif_ids.append(motif.accession.decode())
             occurrence.append(len(pattern.matched_elements))
@@ -454,8 +465,9 @@ def make_occurrence_matrix(path):
             
             onehot_seqs = sequences_to_onehot(sequences)
             return make_occurrence_matrix_memelite("JASPAR2024_CORE_non-redundant_pfms_meme.txt", onehot_seqs)
-        except Exception:
+        except Exception as e:
             # Fall back to pymemesuite if memelite fails
+            print(f"Warning: memelite failed ({e}), falling back to pymemesuite")
             pass
 
     # Original pymemesuite implementation
@@ -468,15 +480,21 @@ def make_occurrence_matrix(path):
         ]
 
     
-    fimo = FIMO() 
+    try:
+        fimo = FIMO() 
+    except Exception as e:
+        raise RuntimeError(f"Failed to initialize FIMO: {e}. Check that FIMO class is properly imported.")
+    
     #matrix with m rows and n columns
     occurrence_matrix = []
-    for sequence in sequences:
+    for sequence in tqdm(sequences, desc="Processing sequences for occurrence matrix"):
         sequence = [sequence]
         occurrence = []
         motif_ids = []
         with MotifFile("JASPAR2024_CORE_non-redundant_pfms_meme.txt") as motif_file:
-            for motif in motif_file: 
+            motifs_list = list(motif_file)
+            motif_file.seek(0)  # Reset to beginning for actual processing
+            for motif in motifs_list:
                 pattern = fimo.score_motif(motif, sequence, motif_file.background)
                 motif_ids.append(motif.accession.decode())
                 occurrence.append(len(pattern.matched_elements))
@@ -515,7 +533,7 @@ def gradient_shap(x_seq, model, class_index=0, trim_end=None):
     x_seq = np.swapaxes(x_seq,1,2)
     N,A,L = x_seq.shape
     score_cache = []
-    for i,x in tqdm(enumerate(x_seq)):
+    for i,x in tqdm(enumerate(x_seq), desc="Computing SHAP scores", total=len(x_seq)):
         # process sequences so that they are right shape (based on insertions)
         x = np.expand_dims(x, axis=0)
         x_tensor = torch.tensor(x, requires_grad=True, dtype=torch.float32).to(device)

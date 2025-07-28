@@ -86,7 +86,7 @@ def get_penultimate_embeddings(model, x):
 
 #preparing data to put into kmer_statistics function
 def put_deepstarr_into_NLA(x_test_tensor, x_synthetic_tensor):
-    return x_test_tensor.detach().numpy().transpose(0,2,1), x_synthetic_tensor.detach().numpy().transpose(0,2,1)
+    return x_test_tensor.detach().cpu().numpy().transpose(0,2,1), x_synthetic_tensor.detach().cpu().numpy().transpose(0,2,1)
 
 def write_to_h5(filename, data_dict):
     """
@@ -113,7 +113,7 @@ def one_hot_to_seq(
     # convert one hot to A,C,G,T
     seq_list = []
 
-    for index in tqdm(range(len(X))): #for loop is what actually converts a list of one-hot encoded sequences into ACGT
+    for index in tqdm(range(len(X)), desc="Converting sequences to text"): #for loop is what actually converts a list of one-hot encoded sequences into ACGT
 
         seq = X[index]
 
@@ -130,7 +130,7 @@ def create_fasta_file(sequence_list, path):
     '''
     output_path = path
     output_file = open(output_path, 'w')
-    for i in range(len(sequence_list)):
+    for i in tqdm(range(len(sequence_list)), desc="Writing FASTA file"):
         identifier_line = '>Seq' + str(i) + '\n'
         output_file.write(identifier_line)
         sequence_line = sequence_list[i]

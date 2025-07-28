@@ -35,11 +35,15 @@ def run_attribution_consistency_analysis(deepstarr, sample_seqs, X_test, output_
     top_sampled_seqs = sample_seqs[sorted_indices[:2000]]
     
     # SHAP score for top activity sequences
+    print("Computing SHAP scores for top 2000 sequences...")
     shap_score_top_sampled = gradient_shap(top_sampled_seqs, deepstarr)
+    
+    print("Processing attribution maps...")
     attribution_map_top_sampled = process_attribution_map(shap_score_top_sampled, k=6)
     mask_top_sampled = unit_mask(top_sampled_seqs)
 
     # Entropic information for top sampled sequences
+    print("Computing spherical coordinates for top sequences...")
     phi_1_s, phi_2_s, r_s = spherical_coordinates_process_2_trad([attribution_map_top_sampled], 
                                                                  top_sampled_seqs, 
                                                                  mask_top_sampled, 
@@ -50,10 +54,14 @@ def run_attribution_consistency_analysis(deepstarr, sample_seqs, X_test, output_
     
     # Consistency across generated and observed sequence
     concatenated_seqs = torch.cat((X_test, sample_seqs), dim=0)
+    print(f"Computing SHAP scores for {len(concatenated_seqs)} concatenated sequences...")
     shap_score_concatenated = gradient_shap(concatenated_seqs, deepstarr)
+    
+    print("Processing attribution maps for concatenated sequences...")
     attribution_map_concatenated = process_attribution_map(shap_score_concatenated, k=6)
     mask_concatenated = unit_mask(concatenated_seqs)
 
+    print("Computing spherical coordinates for concatenated sequences...")
     phi_1_s, phi_2_s, r_s = spherical_coordinates_process_2_trad([attribution_map_concatenated], 
                                                                  concatenated_seqs, 
                                                                  mask_concatenated, 
