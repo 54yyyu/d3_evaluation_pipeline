@@ -13,9 +13,10 @@ from typing import Dict, Any, Union, List, Optional, Tuple
 import tempfile
 import os
 from pathlib import Path
+from tqdm import tqdm
 from .base_evaluator import BaseEvaluator
-from src.data.data_utils import one_hot_to_sequences, create_fasta_file
-from src.models.model_utils import ModelWrapper
+from data.data_utils import one_hot_to_sequences, create_fasta_file
+from models.model_utils import ModelWrapper
 
 
 class CompositionalSimilarityEvaluator(BaseEvaluator):
@@ -70,26 +71,46 @@ class CompositionalSimilarityEvaluator(BaseEvaluator):
         
         results = {}
         
-        # 1. Motif enrichment analysis
+        # Count total steps for progress tracking
+        total_steps = 0
         if motif_database_path:
-            results.update(self._motif_enrichment_analysis(
-                x_synthetic_np, x_test_np, motif_database_path
-            ))
-            
-            # 2. Motif co-occurrence analysis
-            results.update(self._motif_cooccurrence_analysis(
-                x_synthetic_np, x_test_np, motif_database_path
-            ))
-        else:
-            results["motif_analysis_note"] = "Motif database path not provided, skipping motif analysis"
-        
-        # 3. Attribution consistency analysis (if oracle model provided)
+            total_steps += 2  # motif enrichment + co-occurrence
         if oracle_model:
-            results.update(self._attribution_consistency_analysis(
-                x_synthetic_np, x_test_np, oracle_model
-            ))
-        else:
-            results["attribution_analysis_note"] = "Oracle model not provided, skipping attribution analysis"
+            total_steps += 1  # attribution analysis
+            
+        progress_bar = tqdm(total=total_steps, desc="Compositional similarity evaluation", 
+                           unit="analysis", disable=total_steps == 0)
+        
+        try:
+            # 1. Motif enrichment analysis
+            if motif_database_path:
+                progress_bar.set_description("Motif enrichment analysis")
+                results.update(self._motif_enrichment_analysis(
+                    x_synthetic_np, x_test_np, motif_database_path
+                ))
+                progress_bar.update(1)
+                
+                # 2. Motif co-occurrence analysis
+                progress_bar.set_description("Motif co-occurrence analysis")
+                results.update(self._motif_cooccurrence_analysis(
+                    x_synthetic_np, x_test_np, motif_database_path
+                ))
+                progress_bar.update(1)
+            else:
+                results["motif_analysis_note"] = "Motif database path not provided, skipping motif analysis"
+            
+            # 3. Attribution consistency analysis (if oracle model provided)
+            if oracle_model:
+                progress_bar.set_description("Attribution consistency analysis")
+                results.update(self._attribution_consistency_analysis(
+                    x_synthetic_np, x_test_np, oracle_model
+                ))
+                progress_bar.update(1)
+            else:
+                results["attribution_analysis_note"] = "Oracle model not provided, skipping attribution analysis"
+                
+        finally:
+            progress_bar.close()
         
         self.update_results(results)
         return results
@@ -132,8 +153,14 @@ class CompositionalSimilarityEvaluator(BaseEvaluator):
         x_synthetic_nal = np.transpose(x_synthetic, (0, 2, 1)) if x_synthetic.shape[2] == 4 else x_synthetic
         
         # Get motif counts
-        motif_counts_test = self._motif_count_tangermeme(motif_database_path, x_test_nal)
-        motif_counts_synthetic = self._motif_count_tangermeme(motif_database_path, x_synthetic_nal)
+        with tqdm(total=2, desc="Computing motif counts", unit="dataset", leave=False) as pbar:
+            pbar.set_description("Computing test motif counts")
+            motif_counts_test = self._motif_count_tangermeme(motif_database_path, x_test_nal)
+            pbar.update(1)
+            
+            pbar.set_description("Computing synthetic motif counts")
+            motif_counts_synthetic = self._motif_count_tangermeme(motif_database_path, x_synthetic_nal)
+            pbar.update(1)
         
         # Calculate Pearson correlation
         counts_test = list(motif_counts_test.values())
@@ -174,8 +201,14 @@ class CompositionalSimilarityEvaluator(BaseEvaluator):
         
         try:
             # Get motif counts
-            motif_counts_test = self._motif_count_fimo(test_fasta_path, motif_database_path)
-            motif_counts_synthetic = self._motif_count_fimo(syn_fasta_path, motif_database_path)
+            with tqdm(total=2, desc="Computing FIMO motif counts", unit="dataset", leave=False) as pbar:
+                pbar.set_description("Computing test motif counts")
+                motif_counts_test = self._motif_count_fimo(test_fasta_path, motif_database_path)
+                pbar.update(1)
+                
+                pbar.set_description("Computing synthetic motif counts")
+                motif_counts_synthetic = self._motif_count_fimo(syn_fasta_path, motif_database_path)
+                pbar.update(1)
             
             # Calculate correlation
             counts_test = list(motif_counts_test.values())
@@ -232,8 +265,14 @@ class CompositionalSimilarityEvaluator(BaseEvaluator):
         x_synthetic_nal = np.transpose(x_synthetic, (0, 2, 1)) if x_synthetic.shape[2] == 4 else x_synthetic
         
         # Get occurrence matrices
-        motif_matrix_test = self._make_occurrence_matrix_tangermeme(motif_database_path, x_test_nal)
-        motif_matrix_synthetic = self._make_occurrence_matrix_tangermeme(motif_database_path, x_synthetic_nal)
+        with tqdm(total=2, desc="Building occurrence matrices", unit="dataset", leave=False) as pbar:
+            pbar.set_description("Building test occurrence matrix")
+            motif_matrix_test = self._make_occurrence_matrix_tangermeme(motif_database_path, x_test_nal)
+            pbar.update(1)
+            
+            pbar.set_description("Building synthetic occurrence matrix") 
+            motif_matrix_synthetic = self._make_occurrence_matrix_tangermeme(motif_database_path, x_synthetic_nal)
+            pbar.update(1)
         
         # Calculate covariance matrices
         cov_test = np.cov(motif_matrix_test.T)
@@ -266,8 +305,14 @@ class CompositionalSimilarityEvaluator(BaseEvaluator):
         
         try:
             # Get occurrence matrices
-            motif_matrix_test = self._make_occurrence_matrix_fimo(test_fasta_path, motif_database_path)
-            motif_matrix_synthetic = self._make_occurrence_matrix_fimo(syn_fasta_path, motif_database_path)
+            with tqdm(total=2, desc="Building FIMO occurrence matrices", unit="dataset", leave=False) as pbar:
+                pbar.set_description("Building test occurrence matrix")
+                motif_matrix_test = self._make_occurrence_matrix_fimo(test_fasta_path, motif_database_path)
+                pbar.update(1)
+                
+                pbar.set_description("Building synthetic occurrence matrix")
+                motif_matrix_synthetic = self._make_occurrence_matrix_fimo(syn_fasta_path, motif_database_path)
+                pbar.update(1)
             
             # Calculate covariance matrices
             cov_test = np.cov(np.array(motif_matrix_test).T)
@@ -328,12 +373,23 @@ class CompositionalSimilarityEvaluator(BaseEvaluator):
             x_test_subset = x_test_tensor
         
         # Calculate attribution scores
-        shap_scores_synthetic = self._gradient_shap(x_synthetic_subset, model)
-        shap_scores_test = self._gradient_shap(x_test_subset, model)
-        
-        # Process attribution maps
-        attribution_map_synthetic = self._process_attribution_map(shap_scores_synthetic)
-        attribution_map_test = self._process_attribution_map(shap_scores_test)
+        with tqdm(total=4, desc="Attribution analysis", unit="step", leave=False) as pbar:
+            pbar.set_description("Computing synthetic attributions")
+            shap_scores_synthetic = self._gradient_shap(x_synthetic_subset, model)
+            pbar.update(1)
+            
+            pbar.set_description("Computing test attributions")
+            shap_scores_test = self._gradient_shap(x_test_subset, model)
+            pbar.update(1)
+            
+            # Process attribution maps
+            pbar.set_description("Processing synthetic attribution maps")
+            attribution_map_synthetic = self._process_attribution_map(shap_scores_synthetic)
+            pbar.update(1)
+            
+            pbar.set_description("Processing test attribution maps")
+            attribution_map_test = self._process_attribution_map(shap_scores_test)
+            pbar.update(1)
         
         # Calculate consistency metrics
         consistency_score = self._calculate_attribution_consistency(
@@ -355,7 +411,8 @@ class CompositionalSimilarityEvaluator(BaseEvaluator):
         N, L, A = x_seq.shape
         score_cache = []
         
-        for i, x in enumerate(x_seq):
+        for i, x in tqdm(enumerate(x_seq), total=len(x_seq), 
+                        desc="Computing gradient attributions", unit="seq"):
             # Process single sequence
             x = x.unsqueeze(0)  # Add batch dimension
             x = x.transpose(1, 2)  # Convert to (N, A, L) format for model
@@ -466,7 +523,7 @@ class CompositionalSimilarityEvaluator(BaseEvaluator):
         
         occurrence_matrix = np.zeros((onehot_seqs.shape[0], len(motif_names)))
         
-        for i in range(onehot_seqs.shape[0]):
+        for i in tqdm(range(onehot_seqs.shape[0]), desc="Building motif occurrence matrix", unit="seq"):
             i_hits_df = hits_by_seq[i]
             if not i_hits_df.empty:
                 i_motif_counts = i_hits_df['motif_name'].value_counts().to_dict()
@@ -492,7 +549,10 @@ class CompositionalSimilarityEvaluator(BaseEvaluator):
         
         fimo_obj = FIMO()
         with MotifFile(motif_database_path) as motif_file:
-            for motif in motif_file:
+            motifs = list(motif_file)  # Convert to list for progress tracking
+            
+        with MotifFile(motif_database_path) as motif_file:
+            for motif in tqdm(motifs, desc="Computing FIMO motif counts", unit="motif"):
                 pattern = fimo_obj.score_motif(motif, sequences, motif_file.background)
                 motif_ids.append(motif.accession.decode())
                 occurrence.append(len(pattern.matched_elements))
@@ -513,7 +573,7 @@ class CompositionalSimilarityEvaluator(BaseEvaluator):
         fimo_obj = FIMO()
         occurrence_matrix = []
         
-        for sequence in sequences:
+        for sequence in tqdm(sequences, desc="Building FIMO occurrence matrix", unit="seq"):
             seq_list = [sequence]
             occurrence = []
             

@@ -67,9 +67,7 @@ class ModelLoader:
         """Load DeepSTARR model from checkpoint."""
         try:
             # Try to import the DeepSTARR classes
-            # This assumes the deepstarr.py module is available
-            sys.path.append(str(Path(__file__).parent.parent.parent.parent / "small_data"))
-            from deepstarr import PL_DeepSTARR
+            from .deepstarr import PL_DeepSTARR
             
             model = PL_DeepSTARR.load_from_checkpoint(model_path).eval()
             return model
@@ -93,6 +91,10 @@ class ModelPredictor:
         self.model = model
         self.extractor = EmbeddingExtractor()
         
+    def _get_model_device(self) -> torch.device:
+        """Get the device of the model."""
+        return next(self.model.parameters()).device
+        
     def predict(self, 
                x_test: torch.Tensor, 
                x_synthetic: torch.Tensor) -> Tuple[np.ndarray, np.ndarray]:
@@ -107,12 +109,17 @@ class ModelPredictor:
             Tuple of (test_predictions, synthetic_predictions) as numpy arrays
         """
         self.model.eval()
+        device = self._get_model_device()
+        
+        # Move tensors to model device
+        x_test = x_test.to(device)
+        x_synthetic = x_synthetic.to(device)
         
         with torch.no_grad():
             y_hat_test = self.model(x_test)
             y_hat_synthetic = self.model(x_synthetic)
             
-        return y_hat_test.detach().numpy(), y_hat_synthetic.detach().numpy()
+        return y_hat_test.detach().cpu().numpy(), y_hat_synthetic.detach().cpu().numpy()
     
     def get_penultimate_embeddings(self, 
                                   x: torch.Tensor, 
@@ -127,6 +134,9 @@ class ModelPredictor:
         Returns:
             Embeddings tensor
         """
+        device = self._get_model_device()
+        x = x.to(device)
+        
         # Find the specified layer and register hook
         hook_registered = False
         for name, module in self.model.named_modules():
@@ -161,11 +171,12 @@ class ModelPredictor:
             Predictions as numpy array
         """
         self.model.eval()
+        device = self._get_model_device()
         predictions = []
         
         with torch.no_grad():
             for i in range(0, len(x), batch_size):
-                batch = x[i:i+batch_size]
+                batch = x[i:i+batch_size].to(device)
                 pred = self.model(batch)
                 predictions.append(pred.detach().cpu().numpy())
                 
@@ -307,6 +318,8 @@ class ModelWrapper:
         
     def __call__(self, x: torch.Tensor) -> torch.Tensor:
         """Make predictions (allows using wrapper like original model)."""
+        device = self.predictor._get_model_device()
+        x = x.to(device)
         return self.model(x)
         
     def predict(self, x_test: torch.Tensor, x_synthetic: torch.Tensor) -> Tuple[np.ndarray, np.ndarray]:

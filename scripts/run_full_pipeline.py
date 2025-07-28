@@ -297,12 +297,46 @@ def combine_results(all_results: Dict[str, Dict[str, Any]],
     return combined
 
 
+def save_intermediate_results(eval_type: str, results: Dict[str, Any], 
+                            config_manager: ConfigManager, 
+                            output_format: str = "pickle"):
+    """Save intermediate results as each evaluation completes."""
+    logger = logging.getLogger("evaluation_pipeline")
+    
+    # Ensure output directory exists
+    output_dir = config_manager.get('output.results_dir')
+    ensure_directory_exists(output_dir)
+    
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    
+    # Create intermediate results structure
+    intermediate_results = {
+        "evaluation_type": eval_type,
+        "results": results,
+        "timestamp": timestamp,
+        "metadata": create_run_metadata(config_manager.config)
+    }
+    
+    if output_format in ["pickle", "both"]:
+        intermediate_file = Path(output_dir) / f"intermediate_{eval_type}_{timestamp}.pkl"
+        with open(intermediate_file, 'wb') as f:
+            pickle.dump(intermediate_results, f)
+        logger.info(f"✓ {eval_type} results saved to {intermediate_file}")
+    
+    if output_format in ["json", "both"]:
+        intermediate_file = Path(output_dir) / f"intermediate_{eval_type}_{timestamp}.json"
+        json_data = convert_for_json(intermediate_results)
+        with open(intermediate_file, 'w') as f:
+            json.dump(json_data, f, indent=2)
+        logger.info(f"✓ {eval_type} results saved to {intermediate_file}")
+
+
 def save_results(all_results: Dict[str, Any], 
                 evaluators: Dict[str, Any],
                 config_manager: ConfigManager,
                 save_individual: bool = False,
                 output_format: str = "pickle"):
-    """Save evaluation results."""
+    """Save final combined evaluation results."""
     logger = logging.getLogger("evaluation_pipeline")
     
     # Ensure output directory exists
@@ -318,7 +352,7 @@ def save_results(all_results: Dict[str, Any],
         combined_file = Path(output_dir) / f"full_evaluation_{timestamp}.pkl"
         with open(combined_file, 'wb') as f:
             pickle.dump(combined_results, f)
-        logger.info(f"Combined results saved to {combined_file}")
+        logger.info(f"Final combined results saved to {combined_file}")
     
     if output_format in ["json", "both"]:
         combined_file = Path(output_dir) / f"full_evaluation_{timestamp}.json"
@@ -326,7 +360,7 @@ def save_results(all_results: Dict[str, Any],
         json_data = convert_for_json(combined_results)
         with open(combined_file, 'w') as f:
             json.dump(json_data, f, indent=2)
-        logger.info(f"Combined results saved to {combined_file}")
+        logger.info(f"Final combined results saved to {combined_file}")
     
     # Save individual results if requested
     if save_individual:
@@ -357,7 +391,7 @@ def convert_for_json(obj):
 def print_summary(all_results: Dict[str, Dict[str, Any]]):
     """Print summary of all evaluation results."""
     print("\n" + "="*80)
-    print("EVALUATION PIPELINE SUMMARY")
+    print("FINAL EVALUATION PIPELINE SUMMARY")
     print("="*80)
     
     for eval_type, results in all_results.items():
@@ -415,6 +449,17 @@ def main():
             )
             all_results['functional_similarity'] = results
             evaluators['functional_similarity'] = evaluator
+            
+            # Save intermediate results
+            save_intermediate_results('functional_similarity', results, 
+                                    config_manager, args.output_format)
+            
+            # Print intermediate summary
+            print(f"\n{'='*60}")
+            print("FUNCTIONAL SIMILARITY RESULTS (INTERMEDIATE)")
+            print('='*60)
+            print(format_results_for_display(results))
+            print('='*60)
         
         # Sequence similarity
         if config_manager.get('evaluation.run_sequence_similarity', True):
@@ -423,6 +468,17 @@ def main():
             )
             all_results['sequence_similarity'] = results
             evaluators['sequence_similarity'] = evaluator
+            
+            # Save intermediate results
+            save_intermediate_results('sequence_similarity', results, 
+                                    config_manager, args.output_format)
+            
+            # Print intermediate summary
+            print(f"\n{'='*60}")
+            print("SEQUENCE SIMILARITY RESULTS (INTERMEDIATE)")
+            print('='*60)
+            print(format_results_for_display(results))
+            print('='*60)
         
         # Compositional similarity
         if config_manager.get('evaluation.run_compositional_similarity', True):
@@ -431,6 +487,17 @@ def main():
             )
             all_results['compositional_similarity'] = results
             evaluators['compositional_similarity'] = evaluator
+            
+            # Save intermediate results
+            save_intermediate_results('compositional_similarity', results, 
+                                    config_manager, args.output_format)
+            
+            # Print intermediate summary
+            print(f"\n{'='*60}")
+            print("COMPOSITIONAL SIMILARITY RESULTS (INTERMEDIATE)")
+            print('='*60)
+            print(format_results_for_display(results))
+            print('='*60)
         
         # Print summary
         print_summary(all_results)

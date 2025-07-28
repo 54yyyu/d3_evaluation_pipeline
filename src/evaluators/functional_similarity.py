@@ -12,7 +12,7 @@ import scipy.stats
 from scipy import linalg
 from typing import Dict, Any, Union
 from .base_evaluator import BaseEvaluator
-from src.models.model_utils import ModelWrapper, make_predictions, extract_embeddings
+from models.model_utils import ModelWrapper, make_predictions, extract_embeddings
 
 
 class FunctionalSimilarityEvaluator(BaseEvaluator):

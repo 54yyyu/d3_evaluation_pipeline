@@ -7,7 +7,7 @@ name = "d3-evaluation-pipeline"
 version = "0.1.0"
 description = "Comprehensive evaluation pipeline for synthetic DNA sequences"
 authors = [
-    {name = "D3 Analysis Team", email = ""}
+    {name = "D3 Analysis Team", email = "yiyu@cshl.edu"}
 ]
 readme = "README.md"
 license = {text = "MIT"}
