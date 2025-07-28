@@ -18,8 +18,8 @@ def run_functional_similarity_analysis(deepstarr, x_test_tensor, x_synthetic_ten
         dict: Results dictionary with all functional similarity metrics
     """
     # Import required functions from utils
-    from ..utils.helpers import load_predictions
-    from ..utils.seq_evals_improved import (
+    from utils.helpers import load_predictions
+    from utils.seq_evals_improved import (
         conditional_generation_fidelity, get_penultimate_embeddings,
         calculate_activation_statistics, calculate_frechet_distance,
         predictive_distribution_shift, calculate_cross_sequence_identity_batch,

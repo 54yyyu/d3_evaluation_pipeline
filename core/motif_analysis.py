@@ -15,7 +15,7 @@ def run_motif_analysis(x_test_tensor, x_synthetic_tensor, output_dir="."):
         dict: Results dictionary with motif statistics
     """
     # Import required functions from utils
-    from ..utils.seq_evals_improved import (
+    from utils.seq_evals_improved import (
         put_deepstarr_into_NLA, one_hot_to_seq, create_fasta_file,
         motif_count, enrich_pr, make_occurrence_matrix, frobenius_norm
     )

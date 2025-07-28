@@ -17,8 +17,8 @@ def run_attribution_consistency_analysis(deepstarr, sample_seqs, X_test, output_
         dict: Results dictionary with entropic information
     """
     # Import required functions from utils
-    from ..utils.seq_evals_improved import gradient_shap, process_attribution_map, unit_mask
-    from ..utils.seq_evals_improved import spherical_coordinates_process_2_trad, initialize_integration_2, calculate_entropy_2
+    from utils.seq_evals_improved import gradient_shap, process_attribution_map, unit_mask
+    from utils.seq_evals_improved import spherical_coordinates_process_2_trad, initialize_integration_2, calculate_entropy_2
     
     # Get current timestamp
     current_date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
