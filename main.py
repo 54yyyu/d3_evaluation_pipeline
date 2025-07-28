@@ -24,14 +24,14 @@ import h5py
 import pickle
 import json
 
-# Add parent directory to path to import modules
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Add parent directory to path to import modules (needed for deepstarr)
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from deepstarr import PL_DeepSTARR
-from analysis.utils.helpers import extract_data, numpy_to_tensor, load_deepstarr
-from analysis.core.attribution_analysis import run_attribution_consistency_analysis
-from analysis.core.functional_similarity import run_functional_similarity_analysis  
-from analysis.core.motif_analysis import run_motif_analysis
+from utils.helpers import extract_data, numpy_to_tensor, load_deepstarr
+from core.attribution_analysis import run_attribution_consistency_analysis
+from core.functional_similarity import run_functional_similarity_analysis  
+from core.motif_analysis import run_motif_analysis
 
 
 def parse_arguments():

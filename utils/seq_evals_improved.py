@@ -15,10 +15,23 @@ from Bio import motifs
 import os
 # Try to import memelite first, fallback to pymemesuite
 try:
+    # Try relative import first
     from .seq_evals_func_motifs import motif_count_memelite, make_occurrence_matrix_memelite
     USE_MEMELITE = True
-except ImportError:
-    USE_MEMELITE = False
+except (ImportError, ValueError):
+    try:
+        # Try absolute import as fallback
+        from utils.seq_evals_func_motifs import motif_count_memelite, make_occurrence_matrix_memelite
+        USE_MEMELITE = True
+    except ImportError:
+        try:
+            # Try direct import from same directory
+            import seq_evals_func_motifs
+            motif_count_memelite = seq_evals_func_motifs.motif_count_memelite
+            make_occurrence_matrix_memelite = seq_evals_func_motifs.make_occurrence_matrix_memelite
+            USE_MEMELITE = True
+        except ImportError:
+            USE_MEMELITE = False
 
 # Always import pymemesuite as fallback
 from pymemesuite import fimo
