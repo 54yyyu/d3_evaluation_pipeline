@@ -120,7 +120,7 @@ class CompositionalSimilarityEvaluator(BaseEvaluator):
                                  x_test: np.ndarray,
                                  motif_database_path: str) -> Dict[str, Any]:
         """
-        Analyze motif enrichment using FIMO or TangerMeme.
+        Analyze motif enrichment using FIMO or MemeLite.
         
         Args:
             x_synthetic: Synthetic sequences
@@ -131,35 +131,35 @@ class CompositionalSimilarityEvaluator(BaseEvaluator):
             Dictionary with motif enrichment results
         """
         try:
-            # Try TangerMeme first (more efficient)
-            return self._motif_enrichment_tangermeme(x_synthetic, x_test, motif_database_path)
+            # Try MemeLite first (more efficient)
+            return self._motif_enrichment_memelite(x_synthetic, x_test, motif_database_path)
         except ImportError:
-            # Fall back to FIMO if TangerMeme not available
+            # Fall back to FIMO if MemeLite not available
             return self._motif_enrichment_fimo(x_synthetic, x_test, motif_database_path)
     
-    def _motif_enrichment_tangermeme(self, 
+    def _motif_enrichment_memelite(self, 
                                    x_synthetic: np.ndarray,
                                    x_test: np.ndarray,
                                    motif_database_path: str) -> Dict[str, Any]:
-        """Motif enrichment analysis using TangerMeme."""
+        """Motif enrichment analysis using MemeLite."""
         try:
-            from tangermeme.tools.fimo import fimo as tangermeme_fimo
-            from tangermeme.io import read_meme
+            from memelite.fimo import fimo as memelite_fimo
+            from memelite.io import read_meme
         except ImportError:
-            raise ImportError("TangerMeme not available")
+            raise ImportError("MemeLite not available")
         
-        # Convert sequences to (N, A, L) format for TangerMeme
+        # Convert sequences to (N, A, L) format for MemeLite
         x_test_nal = np.transpose(x_test, (0, 2, 1)) if x_test.shape[2] == 4 else x_test
         x_synthetic_nal = np.transpose(x_synthetic, (0, 2, 1)) if x_synthetic.shape[2] == 4 else x_synthetic
         
         # Get motif counts
         with tqdm(total=2, desc="Computing motif counts", unit="dataset", leave=False) as pbar:
             pbar.set_description("Computing test motif counts")
-            motif_counts_test = self._motif_count_tangermeme(motif_database_path, x_test_nal)
+            motif_counts_test = self._motif_count_memelite(motif_database_path, x_test_nal)
             pbar.update(1)
             
             pbar.set_description("Computing synthetic motif counts")
-            motif_counts_synthetic = self._motif_count_tangermeme(motif_database_path, x_synthetic_nal)
+            motif_counts_synthetic = self._motif_count_memelite(motif_database_path, x_synthetic_nal)
             pbar.update(1)
         
         # Calculate Pearson correlation
@@ -171,7 +171,7 @@ class CompositionalSimilarityEvaluator(BaseEvaluator):
         return {
             "motif_enrichment_pearson_r": float(correlation),
             "motif_enrichment_p_value": float(p_value),
-            "motif_analysis_method": "tangermeme"
+            "motif_analysis_method": "memelite"
         }
     
     def _motif_enrichment_fimo(self, 
@@ -243,22 +243,22 @@ class CompositionalSimilarityEvaluator(BaseEvaluator):
             Dictionary with co-occurrence results
         """
         try:
-            # Try TangerMeme approach
-            return self._motif_cooccurrence_tangermeme(x_synthetic, x_test, motif_database_path)
+            # Try MemeLite approach
+            return self._motif_cooccurrence_memelite(x_synthetic, x_test, motif_database_path)
         except ImportError:
             # Fall back to FIMO
             return self._motif_cooccurrence_fimo(x_synthetic, x_test, motif_database_path)
     
-    def _motif_cooccurrence_tangermeme(self, 
+    def _motif_cooccurrence_memelite(self, 
                                      x_synthetic: np.ndarray,
                                      x_test: np.ndarray,
                                      motif_database_path: str) -> Dict[str, Any]:
-        """Motif co-occurrence analysis using TangerMeme."""
+        """Motif co-occurrence analysis using MemeLite."""
         try:
-            from tangermeme.tools.fimo import fimo as tangermeme_fimo
-            from tangermeme.io import read_meme
+            from memelite.fimo import fimo as memelite_fimo
+            from memelite.io import read_meme
         except ImportError:
-            raise ImportError("TangerMeme not available")
+            raise ImportError("MemeLite not available")
         
         # Convert to (N, A, L) format
         x_test_nal = np.transpose(x_test, (0, 2, 1)) if x_test.shape[2] == 4 else x_test
@@ -267,11 +267,11 @@ class CompositionalSimilarityEvaluator(BaseEvaluator):
         # Get occurrence matrices
         with tqdm(total=2, desc="Building occurrence matrices", unit="dataset", leave=False) as pbar:
             pbar.set_description("Building test occurrence matrix")
-            motif_matrix_test = self._make_occurrence_matrix_tangermeme(motif_database_path, x_test_nal)
+            motif_matrix_test = self._make_occurrence_matrix_memelite(motif_database_path, x_test_nal)
             pbar.update(1)
             
             pbar.set_description("Building synthetic occurrence matrix") 
-            motif_matrix_synthetic = self._make_occurrence_matrix_tangermeme(motif_database_path, x_synthetic_nal)
+            motif_matrix_synthetic = self._make_occurrence_matrix_memelite(motif_database_path, x_synthetic_nal)
             pbar.update(1)
         
         # Calculate covariance matrices - match original transpose operations
@@ -286,7 +286,7 @@ class CompositionalSimilarityEvaluator(BaseEvaluator):
         
         return {
             "motif_cooccurrence_frobenius_norm": float(frobenius_norm),
-            "cooccurrence_method": "tangermeme"
+            "cooccurrence_method": "memelite"
         }
     
     def _motif_cooccurrence_fimo(self, 
@@ -689,26 +689,26 @@ class CompositionalSimilarityEvaluator(BaseEvaluator):
         return np.round(Relative_entropy, 3)
     
     # Helper methods for motif analysis
-    def _motif_count_tangermeme(self, meme_file_path: str, onehot_seqs: np.ndarray) -> Dict[str, int]:
-        """Get motif counts using TangerMeme."""
-        from tangermeme.tools.fimo import fimo as tangermeme_fimo
-        from tangermeme.io import read_meme
+    def _motif_count_memelite(self, meme_file_path: str, onehot_seqs: np.ndarray) -> Dict[str, int]:
+        """Get motif counts using MemeLite."""
+        from memelite.fimo import fimo as memelite_fimo
+        from memelite.io import read_meme
         
         motifs = read_meme(meme_file_path)
-        hits = tangermeme_fimo(meme_file_path, onehot_seqs, dim=0)
+        hits = memelite_fimo(meme_file_path, onehot_seqs, dim=0)
         motif_names = list(motifs.keys())
         occurrence = [df.shape[0] for df in hits]
         
         return dict(zip(motif_names, occurrence))
     
-    def _make_occurrence_matrix_tangermeme(self, meme_file_path: str, onehot_seqs: np.ndarray) -> np.ndarray:
-        """Create occurrence matrix using TangerMeme."""
-        from tangermeme.tools.fimo import fimo as tangermeme_fimo
-        from tangermeme.io import read_meme
+    def _make_occurrence_matrix_memelite(self, meme_file_path: str, onehot_seqs: np.ndarray) -> np.ndarray:
+        """Create occurrence matrix using MemeLite."""
+        from memelite.fimo import fimo as memelite_fimo
+        from memelite.io import read_meme
         
         motifs = read_meme(meme_file_path)
         motif_names = list(motifs.keys())
-        hits_by_seq = tangermeme_fimo(meme_file_path, onehot_seqs, dim=1)
+        hits_by_seq = memelite_fimo(meme_file_path, onehot_seqs, dim=1)
         
         occurrence_matrix = np.zeros((onehot_seqs.shape[0], len(motif_names)))
         
