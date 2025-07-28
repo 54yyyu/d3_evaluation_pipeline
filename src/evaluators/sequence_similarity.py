@@ -179,11 +179,11 @@ class SequenceSimilarityEvaluator(BaseEvaluator):
             dist_test = self._compute_kmer_spectra(x_test, k)
             dist_synthetic = self._compute_kmer_spectra(x_synthetic, k)
             
-            # Calculate Kullback-Leibler divergence
-            kld = np.sum(scipy.special.kl_div(dist_test, dist_synthetic))
+            # Calculate Kullback-Leibler divergence - match original order: (test, synthetic)
+            kld = np.round(np.sum(scipy.special.kl_div(dist_test, dist_synthetic)), 6)
             
-            # Calculate Jensen-Shannon distance
-            jsd = scipy.spatial.distance.jensenshannon(dist_test, dist_synthetic)
+            # Calculate Jensen-Shannon distance  
+            jsd = np.round(scipy.spatial.distance.jensenshannon(dist_test, dist_synthetic), 6)
             
             results.update({
                 f"kmer_{k}_kullback_leibler_divergence": float(kld),
@@ -284,8 +284,8 @@ class SequenceSimilarityEvaluator(BaseEvaluator):
         X_train_flat = X_train.reshape(num_train, -1)
         X_test_flat = X_test.reshape(num_test, -1)
         
-        # Initialize result matrix
-        seq_identity = np.zeros((num_train, num_test), dtype=np.float32)
+        # Initialize result matrix - match original data type
+        seq_identity = np.zeros((num_train, num_test), dtype=np.int8)
         
         # Process in batches
         for start_idx in tqdm(range(0, num_train, batch_size), desc="Computing sequence identity"):
@@ -294,8 +294,8 @@ class SequenceSimilarityEvaluator(BaseEvaluator):
             # Compute dot product for this batch
             batch_result = np.dot(X_train_flat[start_idx:end_idx], X_test_flat.T)
             
-            # Store result
-            seq_identity[start_idx:end_idx, :] = batch_result
+            # Store result - cast to int8 to match original
+            seq_identity[start_idx:end_idx, :] = batch_result.astype(np.int8)
         
         return seq_identity
     
@@ -443,8 +443,8 @@ def kmer_statistics(kmer_length: int,
     
     Args:
         kmer_length: Length of k-mers
-        data1: First dataset
-        data2: Second dataset
+        data1: First dataset (test data)
+        data2: Second dataset (synthetic data)
         
     Returns:
         Tuple of (KLD, JSD)
@@ -454,7 +454,8 @@ def kmer_statistics(kmer_length: int,
     dist1 = evaluator._compute_kmer_spectra(data1, kmer_length)
     dist2 = evaluator._compute_kmer_spectra(data2, kmer_length)
     
-    kld = np.sum(scipy.special.kl_div(dist1, dist2))
-    jsd = scipy.spatial.distance.jensenshannon(dist1, dist2)
+    # Match original order and rounding
+    kld = np.round(np.sum(scipy.special.kl_div(dist1, dist2)), 6)
+    jsd = np.round(scipy.spatial.distance.jensenshannon(dist1, dist2), 6)
     
     return kld, jsd

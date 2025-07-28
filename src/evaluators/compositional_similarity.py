@@ -274,9 +274,12 @@ class CompositionalSimilarityEvaluator(BaseEvaluator):
             motif_matrix_synthetic = self._make_occurrence_matrix_tangermeme(motif_database_path, x_synthetic_nal)
             pbar.update(1)
         
-        # Calculate covariance matrices
-        cov_test = np.cov(motif_matrix_test.T)
-        cov_synthetic = np.cov(motif_matrix_synthetic.T)
+        # Calculate covariance matrices - match original transpose operations
+        mm_test = np.array(motif_matrix_test).T
+        mm_synthetic = np.array(motif_matrix_synthetic).T
+        
+        cov_test = np.cov(mm_test)
+        cov_synthetic = np.cov(mm_synthetic)
         
         # Calculate Frobenius norm of difference
         frobenius_norm = np.sqrt(np.sum((cov_test - cov_synthetic)**2))
@@ -314,9 +317,12 @@ class CompositionalSimilarityEvaluator(BaseEvaluator):
                 motif_matrix_synthetic = self._make_occurrence_matrix_fimo(syn_fasta_path, motif_database_path)
                 pbar.update(1)
             
-            # Calculate covariance matrices
-            cov_test = np.cov(np.array(motif_matrix_test).T)
-            cov_synthetic = np.cov(np.array(motif_matrix_synthetic).T)
+            # Calculate covariance matrices - match original transpose operations
+            mm_test = np.array(motif_matrix_test).T
+            mm_synthetic = np.array(motif_matrix_synthetic).T
+            
+            cov_test = np.cov(mm_test)
+            cov_synthetic = np.cov(mm_synthetic)
             
             # Calculate Frobenius norm
             frobenius_norm = np.sqrt(np.sum((cov_test - cov_synthetic)**2))
@@ -336,7 +342,7 @@ class CompositionalSimilarityEvaluator(BaseEvaluator):
                                         x_test: np.ndarray,
                                         oracle_model: Any) -> Dict[str, Any]:
         """
-        Analyze attribution consistency using gradient-based attribution.
+        Analyze attribution consistency using the original spherical coordinate processing.
         
         Args:
             x_synthetic: Synthetic sequences
@@ -358,47 +364,60 @@ class CompositionalSimilarityEvaluator(BaseEvaluator):
         # Wrap model
         model = ModelWrapper(oracle_model) if not isinstance(oracle_model, ModelWrapper) else oracle_model
         
-        # Subsample for computational efficiency
-        max_samples = self.config.get('attribution_max_samples', 1000)
+        # Subsample for computational efficiency (original uses top 2000 activity sequences)
+        max_samples = self.config.get('attribution_max_samples', 2000)
+        
+        # For synthetic sequences, select top activity sequences like in original
         if len(x_synthetic_tensor) > max_samples:
-            indices = np.random.choice(len(x_synthetic_tensor), max_samples, replace=False)
-            x_synthetic_subset = x_synthetic_tensor[indices]
+            # Get activities and select top sequences
+            y_synthetic = model.predict(x_synthetic_tensor, x_synthetic_tensor)[1]  # Get synthetic predictions
+            total_activity = np.sum(y_synthetic, axis=1)
+            sorted_indices = np.argsort(total_activity)[::-1]  # Descending order
+            top_indices = sorted_indices[:max_samples]
+            x_synthetic_top = x_synthetic_tensor[top_indices]
         else:
-            x_synthetic_subset = x_synthetic_tensor
+            x_synthetic_top = x_synthetic_tensor
             
-        if len(x_test_tensor) > max_samples:
-            indices = np.random.choice(len(x_test_tensor), max_samples, replace=False)
-            x_test_subset = x_test_tensor[indices]
-        else:
-            x_test_subset = x_test_tensor
+        # Calculate SHAP scores for top activity sequences
+        shap_scores_synthetic = self._gradient_shap(x_synthetic_top, model)
+        attribution_map_synthetic = self._process_attribution_map(shap_scores_synthetic, k=6)
+        mask_synthetic = self._unit_mask(x_synthetic_top)
         
-        # Calculate attribution scores
-        with tqdm(total=4, desc="Attribution analysis", unit="step", leave=False) as pbar:
-            pbar.set_description("Computing synthetic attributions")
-            shap_scores_synthetic = self._gradient_shap(x_synthetic_subset, model)
-            pbar.update(1)
-            
-            pbar.set_description("Computing test attributions")
-            shap_scores_test = self._gradient_shap(x_test_subset, model)
-            pbar.update(1)
-            
-            # Process attribution maps
-            pbar.set_description("Processing synthetic attribution maps")
-            attribution_map_synthetic = self._process_attribution_map(shap_scores_synthetic)
-            pbar.update(1)
-            
-            pbar.set_description("Processing test attribution maps")
-            attribution_map_test = self._process_attribution_map(shap_scores_test)
-            pbar.update(1)
+        # Calculate entropic information for synthetic sequences
+        phi_1_s, phi_2_s, r_s = self._spherical_coordinates_process_2_trad(
+            [attribution_map_synthetic], 
+            x_synthetic_top, 
+            mask_synthetic, 
+            radius_count_cutoff=0.04
+        )
         
-        # Calculate consistency metrics
-        consistency_score = self._calculate_attribution_consistency(
-            attribution_map_synthetic, attribution_map_test
+        LIM, box_length, box_volume, n_bins, n_bins_half = self._initialize_integration_2(0.1)
+        entropic_info_synthetic = self._calculate_entropy_2(
+            phi_1_s, phi_2_s, r_s, n_bins, 0.1, box_volume, prior_range=3
+        )
+        
+        # For consistency analysis, concatenate test and synthetic sequences
+        x_concatenated = torch.cat((x_test_tensor, x_synthetic_tensor), dim=0)
+        shap_scores_concatenated = self._gradient_shap(x_concatenated, model)
+        attribution_map_concatenated = self._process_attribution_map(shap_scores_concatenated, k=6)
+        mask_concatenated = self._unit_mask(x_concatenated)
+        
+        phi_1_s_concat, phi_2_s_concat, r_s_concat = self._spherical_coordinates_process_2_trad(
+            [attribution_map_concatenated],
+            x_concatenated,
+            mask_concatenated,
+            radius_count_cutoff=0.04
+        )
+        
+        entropic_info_concatenated = self._calculate_entropy_2(
+            phi_1_s_concat, phi_2_s_concat, r_s_concat, n_bins, 0.1, box_volume, prior_range=3
         )
         
         return {
-            "attribution_consistency_score": float(consistency_score),
-            "attribution_samples_used": min(len(x_synthetic_tensor), max_samples)
+            "entropic_information_top_synthetic": float(entropic_info_synthetic[0]),
+            "entropic_information_concatenated": float(entropic_info_concatenated[0]),
+            "attribution_samples_used": len(x_synthetic_top),
+            "attribution_method": "original_spherical_coordinates"
         }
     
     def _gradient_shap(self, x_seq: torch.Tensor, model: ModelWrapper, class_index: int = 0) -> np.ndarray:
@@ -418,8 +437,8 @@ class CompositionalSimilarityEvaluator(BaseEvaluator):
             x = x.transpose(1, 2)  # Convert to (N, A, L) format for model
             x.requires_grad_(True)
             
-            # Create random background
-            num_background = 100
+            # Create random background - match original parameters
+            num_background = 1000
             null_index = np.random.randint(0, A, size=(num_background, L))
             x_null = torch.zeros((num_background, A, L))
             for n in range(num_background):
@@ -427,11 +446,11 @@ class CompositionalSimilarityEvaluator(BaseEvaluator):
                     x_null[n, null_index[n, l], l] = 1.0
             x_null.requires_grad_(True)
             
-            # Calculate Gradient SHAP
+            # Calculate Gradient SHAP - match original parameters
             gradient_shap = GradientShap(model)
             grad = gradient_shap.attribute(
                 x,
-                n_samples=50,
+                n_samples=100,
                 stdevs=0.1,
                 baselines=x_null,
                 target=class_index
@@ -482,6 +501,11 @@ class CompositionalSimilarityEvaluator(BaseEvaluator):
         
         return attr_map_on
     
+    def _unit_mask(self, x_seq: torch.Tensor) -> np.ndarray:
+        """Create unit mask for sequences."""
+        x_np = self._ensure_numpy(x_seq)
+        return np.sum(np.ones(x_np.shape), axis=-1) / 4
+    
     def _calculate_attribution_consistency(self, 
                                          attr_synthetic: np.ndarray,
                                          attr_test: np.ndarray) -> float:
@@ -498,6 +522,171 @@ class CompositionalSimilarityEvaluator(BaseEvaluator):
                 correlations.append(corr)
         
         return np.mean(correlations) if correlations else 0.0
+    
+    # Original spherical coordinate processing functions
+    
+    def _spherical_coordinates_process_2_trad(self, saliency_map_raw_s, X, mask, radius_count_cutoff=0.04):
+        """Process attribution maps into spherical coordinates (original implementation)."""
+        N_EXP = len(saliency_map_raw_s)
+        radius_count = int(radius_count_cutoff * np.prod(X.shape) / 4)
+        cutoff = []
+        x_s, y_s, z_s, r_s, phi_1_s, phi_2_s = [], [], [], [], [], []
+        PI = 3.1416
+        
+        for s in range(N_EXP):
+            saliency_map_raw = saliency_map_raw_s[s]
+            xxx_motif = saliency_map_raw[:, :, 0]
+            yyy_motif = saliency_map_raw[:, :, 1] 
+            zzz_motif = saliency_map_raw[:, :, 2]
+            xxx_motif_pattern = saliency_map_raw[:, :, 0] * mask
+            yyy_motif_pattern = saliency_map_raw[:, :, 1] * mask
+            zzz_motif_pattern = saliency_map_raw[:, :, 2] * mask
+            r = np.sqrt(xxx_motif * xxx_motif + yyy_motif * yyy_motif + zzz_motif * zzz_motif)
+            resh = X.shape[0] * X.shape[1]
+            x = np.array(xxx_motif_pattern.reshape(resh,))
+            y = np.array(yyy_motif_pattern.reshape(resh,))
+            z = np.array(zzz_motif_pattern.reshape(resh,))
+            r = np.array(r.reshape(resh,))
+            
+            # Take care of any NANs
+            x = np.nan_to_num(x)
+            y = np.nan_to_num(y)
+            z = np.nan_to_num(z)
+            r = np.nan_to_num(r)
+            cutoff.append(np.sort(r)[-radius_count])
+            R_cutoff_index = np.sqrt(x*x + y*y + z*z) > cutoff[s]
+            
+            # Cut off
+            x = x[R_cutoff_index]
+            y = y[R_cutoff_index]
+            z = z[R_cutoff_index]
+            r = np.array(r[R_cutoff_index])
+            x_s.append(x)
+            y_s.append(y)
+            z_s.append(z)
+            r_s.append(r)
+            
+            # Rotate axis
+            x__ = np.array(y)
+            y__ = np.array(z)
+            z__ = np.array(x)
+            x = x__
+            y = y__
+            z = z__
+            
+            # "phi"
+            phi_1 = np.arctan(y/x)  # default
+            phi_1 = np.where((x<0) & (y>=0), np.arctan(y/x) + PI, phi_1)   # overwrite
+            phi_1 = np.where((x<0) & (y<0), np.arctan(y/x) - PI, phi_1)   # overwrite
+            phi_1 = np.where(x==0, PI/2, phi_1)  # overwrite
+            # Renormalize temporarily to have both angles in [0,PI]:
+            phi_1 = phi_1/2 + PI/2
+            # "theta"
+            phi_2 = np.arccos(z/r)
+            # back to list
+            phi_1 = list(phi_1)
+            phi_2 = list(phi_2)
+            phi_1_s.append(phi_1)
+            phi_2_s.append(phi_2)
+            
+        return phi_1_s, phi_2_s, r_s
+    
+    def _initialize_integration_2(self, box_length):
+        """Initialize integration parameters (original implementation)."""
+        LIM = 3.1416
+        box_volume = box_length * box_length
+        n_bins = int(LIM / box_length)
+        volume_border_correction = (LIM / box_length / n_bins) * (LIM / box_length / n_bins)
+        n_bins_half = int(n_bins / 2)
+        return LIM, box_length, box_volume, n_bins, n_bins_half
+    
+    def _calculate_entropy_2(self, phi_1_s, phi_2_s, r_s, n_bins, box_length, box_volume, prior_range):
+        """Calculate entropy using original method."""
+        N_EXP = len(phi_1_s)
+        Empirical_box_pdf_s = []
+        Empirical_box_count_s = []
+        Empirical_box_count_plain_s = []
+        
+        for s in range(N_EXP):
+            pdf, count, count_plain = self._empirical_box_pdf_func_2(
+                phi_1_s[s], phi_2_s[s], r_s[s], n_bins, box_length, box_volume
+            )
+            Empirical_box_pdf_s.append(pdf)
+            Empirical_box_count_s.append(count)
+            Empirical_box_count_plain_s.append(count_plain)
+        
+        Entropic_information = []
+        for s in range(N_EXP):
+            entropy = self._kl_divergence_2(
+                Empirical_box_pdf_s[s], 
+                Empirical_box_count_s[s], 
+                Empirical_box_count_plain_s[s], 
+                n_bins, 
+                box_volume, 
+                prior_range
+            )
+            Entropic_information.append(entropy)
+        
+        return Entropic_information
+    
+    def _empirical_box_pdf_func_2(self, phi_1, phi_2, r_s, n_bins, box_length, box_volume):
+        """Calculate empirical box PDF (original implementation)."""
+        N_points = len(phi_1)  # Number of points
+        Empirical_box_count = np.zeros((n_bins, n_bins))
+        Empirical_box_count_plain = np.zeros((n_bins, n_bins))
+        
+        # Now populate the box. Go over every single point.
+        for i in range(N_points):
+            # k, l are box numbers of the (phi_1, phi_2) point
+            k = np.minimum(int(phi_1[i] / box_length), n_bins-1)
+            l = np.minimum(int(phi_2[i] / box_length), n_bins-1)
+            # Increment count in (k,l) box:
+            Empirical_box_count[k, l] += 1 * r_s[i] * r_s[i]
+            Empirical_box_count_plain[k, l] += 1
+        
+        # To get the probability distribution, divide the Empirical_box_count by the total number of points.
+        Empirical_box_pdf = Empirical_box_count / N_points / box_volume
+        # Check that it integrates to around 1:
+        correction = 1 / np.sum(Empirical_box_pdf * box_volume)
+        
+        return Empirical_box_pdf * correction, Empirical_box_count * correction, Empirical_box_count_plain
+    
+    def _kl_divergence_2(self, Empirical_box_pdf, Empirical_box_count, Empirical_box_count_plain, 
+                        n_bins, box_volume, prior_range):
+        """Calculate KL divergence (original implementation)."""
+        # p= empirical distribution, q=prior spherical distribution
+        # Notice that the prior distribution is never 0! So it is safe to divide by q.
+        # L'Hospital rule provides that p*log(p) --> 0 when p->0. When we encounter p=0, 
+        # we would just set the contribution of that term to 0, i.e. ignore it in the sum.
+        Relative_entropy = 0
+        PI = 3.1416
+        
+        for i in range(1, n_bins-1):
+            for j in range(1, n_bins-1):
+                if Empirical_box_pdf[i, j] > 0:
+                    phi_1 = i / n_bins * PI
+                    phi_2 = j / n_bins * PI
+                    prior_counter = 0
+                    prior = 0
+                    
+                    for ii in range(-prior_range, prior_range):
+                        for jj in range(-prior_range, prior_range):
+                            if (i+ii > 0 and i+ii < n_bins and j+jj > 0 and j+jj < n_bins):
+                                prior += Empirical_box_pdf[i+ii, j+jj]
+                                prior_counter += 1
+                    
+                    prior = prior / prior_counter
+                    
+                    if prior > 0:
+                        KL_divergence_contribution = Empirical_box_pdf[i, j] * np.log(
+                            Empirical_box_pdf[i, j] / prior
+                        )
+                    
+                    if np.sin(phi_1) > 0 and prior > 0:
+                        Relative_entropy += KL_divergence_contribution
+        
+        Relative_entropy = Relative_entropy * box_volume  # (volume differential in the "integral")
+        return np.round(Relative_entropy, 3)
     
     # Helper methods for motif analysis
     def _motif_count_tangermeme(self, meme_file_path: str, onehot_seqs: np.ndarray) -> Dict[str, int]:

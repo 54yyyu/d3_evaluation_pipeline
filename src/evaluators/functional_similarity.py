@@ -95,8 +95,8 @@ class FunctionalSimilarityEvaluator(BaseEvaluator):
         # Make predictions
         y_test, y_synthetic = model.predict(x_test, x_synthetic)
         
-        # Calculate MSE
-        mse = np.mean((y_test - y_synthetic) ** 2)
+        # Calculate MSE - match original order: (synthetic - test)^2
+        mse = np.mean((y_synthetic - y_test) ** 2)
         
         return {
             "conditional_generation_fidelity_mse": float(mse)
