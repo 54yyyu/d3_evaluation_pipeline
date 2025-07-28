@@ -48,17 +48,25 @@ def load_deepstarr(oracle_path):
     return deepstarr
 
 def load_predictions(x_test_tensor, x_synthetic_tensor, deepstarr):
+    # Ensure tensors are on the same device as the model
+    device = next(deepstarr.parameters()).device
+    x_test_tensor = x_test_tensor.to(device)
+    x_synthetic_tensor = x_synthetic_tensor.to(device)
 
     #run model predictions
     y_hat_test = deepstarr(x_test_tensor)
     y_hat_syn = deepstarr(x_synthetic_tensor)
 
     #returns numpy arrays of deepstarr predictions from samples and x test
-    return y_hat_test.detach().numpy(), y_hat_syn.detach().numpy()
+    return y_hat_test.detach().cpu().numpy(), y_hat_syn.detach().cpu().numpy()
 
 
 extractor = EmbeddingExtractor()
 def get_penultimate_embeddings(model, x):
+    # Ensure tensor is on the same device as the model
+    device = next(model.parameters()).device
+    x = x.to(device)
+    
     # Find the penultimate layer
     for name, module in model.named_modules():
         if name == 'model.batchnorm6':

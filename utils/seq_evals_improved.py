@@ -36,7 +36,6 @@ except (ImportError, ValueError):
 # Always import pymemesuite as fallback
 from pymemesuite import fimo
 from pymemesuite.common import MotifFile, Sequence
-from pymemesuite import fimo
 from pymemesuite.fimo import FIMO
 from Bio import SeqIO
 import glob
@@ -510,13 +509,16 @@ example:
 '''
 
 def gradient_shap(x_seq, model, class_index=0, trim_end=None):
+    # Detect device of the model
+    device = next(model.parameters()).device
+    
     x_seq = np.swapaxes(x_seq,1,2)
     N,A,L = x_seq.shape
     score_cache = []
     for i,x in tqdm(enumerate(x_seq)):
         # process sequences so that they are right shape (based on insertions)
         x = np.expand_dims(x, axis=0)
-        x_tensor = torch.tensor(x, requires_grad=True, dtype=torch.float32)
+        x_tensor = torch.tensor(x, requires_grad=True, dtype=torch.float32).to(device)
         #x_tensor = model._pad_end(x_tensor)
         x = x_tensor.cpu().detach().numpy()
         # random background
@@ -526,7 +528,7 @@ def gradient_shap(x_seq, model, class_index=0, trim_end=None):
         for n in range(num_background):
             for l in range(L):
                 x_null[n,null_index[n,l],l] = 1.0
-        x_null_tensor = torch.tensor(x_null, requires_grad=True, dtype=torch.float32)
+        x_null_tensor = torch.tensor(x_null, requires_grad=True, dtype=torch.float32).to(device)
         #x_null_tensor = model._pad_end(x_null_tensor)
         # calculate gradient shap
         gradient_shap = GradientShap(model)

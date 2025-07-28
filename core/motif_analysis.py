@@ -15,8 +15,8 @@ def run_motif_analysis(x_test_tensor, x_synthetic_tensor, output_dir="."):
         dict: Results dictionary with motif statistics
     """
     # Import required functions from utils
+    from utils.helpers import put_deepstarr_into_NLA, one_hot_to_seq, create_fasta_file
     from utils.seq_evals_improved import (
-        put_deepstarr_into_NLA, one_hot_to_seq, create_fasta_file,
         motif_count, enrich_pr, make_occurrence_matrix, frobenius_norm
     )
     
@@ -33,16 +33,16 @@ def run_motif_analysis(x_test_tensor, x_synthetic_tensor, output_dir="."):
     create_fasta_file(x_synthetic_e, 'sub_sythetic_seq.txt')
     create_fasta_file(x_test_e, 'sub_test_seq.txt')
 
-    motif_count_1 = motif_count('sub_test_seq.txt', 'JASPAR2024_CORE_non-redundant_pfms_meme.txt')
-    motif_count_2 = motif_count('sub_sythetic_seq.txt', 'JASPAR2024_CORE_non-redundant_pfms_meme.txt')
-    pr = enrich_pr(motif_count_1, motif_count_2)
+    test_motif_counts = motif_count('sub_test_seq.txt', 'JASPAR2024_CORE_non-redundant_pfms_meme.txt')
+    synthetic_motif_counts = motif_count('sub_sythetic_seq.txt', 'JASPAR2024_CORE_non-redundant_pfms_meme.txt')
+    pr = enrich_pr(test_motif_counts, synthetic_motif_counts)
 
     # Motif co-occurrence
-    motif_matrix_1 = make_occurrence_matrix('sub_test_seq.txt')
-    motif_matrix_2 = make_occurrence_matrix('sub_sythetic_seq.txt')
+    test_motif_matrix = make_occurrence_matrix('sub_test_seq.txt')
+    synthetic_motif_matrix = make_occurrence_matrix('sub_sythetic_seq.txt')
 
-    mm_1 = np.array(motif_matrix_1).T
-    mm_2 = np.array(motif_matrix_2).T
+    mm_1 = np.array(test_motif_matrix).T
+    mm_2 = np.array(synthetic_motif_matrix).T
 
     C = np.cov(mm_1)
     C2 = np.cov(mm_2) 

@@ -23,6 +23,11 @@ def run_attribution_consistency_analysis(deepstarr, sample_seqs, X_test, output_
     # Get current timestamp
     current_date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     
+    # Ensure tensors are on the same device as the model
+    device = next(deepstarr.parameters()).device
+    sample_seqs = sample_seqs.to(device)
+    X_test = X_test.to(device)
+    
     # Top 2,000 functional activity sampled sequence
     activity_sample_seqs = deepstarr(sample_seqs.permute(0,2,1))
     samples_total_activity = activity_sample_seqs.sum(dim=1)
