@@ -550,6 +550,10 @@ def gradient_shap(x_seq, model, class_index=0, trim_end=None):
     # Detect device of the model
     device = next(model.parameters()).device
     
+    # Convert tensor to numpy if needed
+    if torch.is_tensor(x_seq):
+        x_seq = x_seq.detach().cpu().numpy()
+    
     x_seq = np.swapaxes(x_seq,1,2)
     N,A,L = x_seq.shape
     score_cache = []
@@ -669,9 +673,16 @@ def orthonormal_coordinates(attr_map):
 
 
 def unit_mask(x_seq):
+    # Convert tensor to numpy if needed
+    if torch.is_tensor(x_seq):
+        x_seq = x_seq.detach().cpu().numpy()
     return np.sum(np.ones(x_seq.shape),axis=-1) / 4
 
 def spherical_coordinates_process_2_trad(saliency_map_raw_s, X, mask, radius_count_cutoff=0.04):
+    # Convert tensor to numpy if needed
+    if torch.is_tensor(X):
+        X = X.detach().cpu().numpy()
+    
     global N_EXP
     N_EXP = len(saliency_map_raw_s)
     radius_count=int(radius_count_cutoff * np.prod(X.shape)/4)
