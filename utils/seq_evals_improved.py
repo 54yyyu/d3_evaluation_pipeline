@@ -38,8 +38,20 @@ try:
     from pymemesuite import fimo
     from pymemesuite.common import MotifFile, Sequence
     from pymemesuite.fimo import FIMO
+    PYMEMESUITE_AVAILABLE = True
 except ImportError as e:
     print(f"Warning: Failed to import pymemesuite: {e}")
+    PYMEMESUITE_AVAILABLE = False
+    # Define dummy classes to avoid NameError
+    class FIMO:
+        def __init__(self):
+            raise ImportError("pymemesuite not available")
+    class MotifFile:
+        def __init__(self, *args):
+            raise ImportError("pymemesuite not available")
+    class Sequence:
+        def __init__(self, *args):
+            raise ImportError("pymemesuite not available")
 from Bio import SeqIO
 import glob
 import tempfile
@@ -85,7 +97,7 @@ example:
 '''
 
 def calculate_activation_statistics(embeddings):
-    embeddings_d = embeddings.detach().numpy()
+    embeddings_d = embeddings.detach().cpu().numpy()
     mu = np.mean(embeddings_d, axis=0)
     sigma = np.cov(embeddings_d, rowvar=False)
     return mu, sigma
@@ -399,6 +411,10 @@ def motif_count(path, path_to_database):
             print(f"Warning: memelite failed ({e}), falling back to pymemesuite")
             pass
     
+    # Check if pymemesuite is available
+    if not PYMEMESUITE_AVAILABLE:
+        raise ImportError("Neither memelite nor pymemesuite is available for motif analysis")
+    
     # Original pymemesuite implementation
     motif_ids = []
     occurrence = []
@@ -469,6 +485,10 @@ def make_occurrence_matrix(path):
             # Fall back to pymemesuite if memelite fails
             print(f"Warning: memelite failed ({e}), falling back to pymemesuite")
             pass
+
+    # Check if pymemesuite is available
+    if not PYMEMESUITE_AVAILABLE:
+        raise ImportError("Neither memelite nor pymemesuite is available for motif analysis")
 
     # Original pymemesuite implementation
     motif_ids = []

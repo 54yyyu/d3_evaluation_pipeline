@@ -234,7 +234,10 @@ def main():
             save_combined_results(output_dir, all_results)
             
         except Exception as e:
+            import traceback
             print(f"✗ Attribution analysis failed: {e}")
+            print("Full error traceback:")
+            traceback.print_exc()
             print("Continuing with remaining analyses...")
     
     # Functional Similarity Analysis
@@ -258,7 +261,10 @@ def main():
             save_combined_results(output_dir, all_results)
             
         except Exception as e:
+            import traceback
             print(f"✗ Functional similarity analysis failed: {e}")
+            print("Full error traceback:")
+            traceback.print_exc()
             print("Continuing with remaining analyses...")
     
     # Motif Analysis
@@ -280,7 +286,10 @@ def main():
             save_combined_results(output_dir, all_results)
             
         except Exception as e:
+            import traceback
             print(f"✗ Motif analysis failed: {e}")
+            print("Full error traceback:")
+            traceback.print_exc()
             print("Analysis completed with errors.")
     
     # Final summary
