@@ -206,6 +206,7 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
+results/
 *.h5
 JASPAR2024_CORE_non-redundant_pfms_meme.txt
 *.ckpt
