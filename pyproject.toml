@@ -1,0 +1,128 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "d3-sequence-analysis"
+version = "0.1.0"
+description = "D3 sequence generation analysis pipeline with unified interface"
+readme = "analysis/README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "D3 Analysis Team"}
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research", 
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
+requires-python = ">=3.8"
+
+dependencies = [
+    # Core scientific computing
+    "numpy>=1.20.0",
+    "pandas>=1.3.0", 
+    "scipy>=1.7.0",
+    "scikit-learn>=1.0.0",
+    
+    # Deep learning
+    "torch>=1.10.0",
+    "lightning>=2.0.0",
+    "pytorch-lightning>=1.8.0",
+    
+    # Bioinformatics
+    "biopython>=1.79",
+    "h5py>=3.0.0",
+    
+    # Motif analysis (try memelite first, fallback to pymemesuite)
+    "pymemesuite",
+    
+    # Attribution analysis
+    "captum>=0.5.0",
+    
+    # Visualization and utilities
+    "matplotlib>=3.5.0",
+    "logomaker>=0.8",
+    "tqdm>=4.60.0",
+]
+
+[project.optional-dependencies]
+# Modern motif analysis (preferred)
+memelite = [
+    "memelite",
+]
+
+# Development dependencies
+dev = [
+    "black>=22.0.0",
+    "flake8>=4.0.0", 
+    "pytest>=7.0.0",
+    "pytest-cov>=3.0.0",
+]
+
+# Full installation with all optional dependencies
+all = [
+    "d3-sequence-analysis[memelite,dev]"
+]
+
+[project.urls]
+Homepage = "https://github.com/your-org/d3-analysis"
+Repository = "https://github.com/your-org/d3-analysis.git"
+Issues = "https://github.com/your-org/d3-analysis/issues"
+
+[project.scripts]
+d3-analysis = "analysis.main:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["analysis*", "deepstarr*"]
+exclude = ["tests*"]
+
+[tool.setuptools.package-data]
+"*" = ["*.txt", "*.h5", "*.meme"]
+
+[tool.black]
+line-length = 100
+target-version = ['py38', 'py39', 'py310', 'py311']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "--cov=analysis --cov-report=html --cov-report=term-missing"
+
+[tool.flake8]
+max-line-length = 100
+extend-ignore = ["E203", "W503"]
+exclude = [
+    ".git",
+    "__pycache__", 
+    "build",
+    "dist",
+    ".eggs",
+    "*.egg-info",
+    ".venv",
+    ".tox"
+]
