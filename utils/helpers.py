@@ -4,7 +4,7 @@ import h5py
 import pandas as pd
 import torch
 import lightning as L
-from tqdm import tqdm
+import tqdm as tqdm_module
 
 from pytorch_lightning import LightningModule
 from deepstarr import *
@@ -113,7 +113,7 @@ def one_hot_to_seq(
     # convert one hot to A,C,G,T
     seq_list = []
 
-    for index in tqdm(range(len(X)), desc="Converting sequences to text"): #for loop is what actually converts a list of one-hot encoded sequences into ACGT
+    for index in tqdm_module.tqdm(range(len(X)), desc="Converting sequences to text"): #for loop is what actually converts a list of one-hot encoded sequences into ACGT
 
         seq = X[index]
 
@@ -130,7 +130,7 @@ def create_fasta_file(sequence_list, path):
     '''
     output_path = path
     output_file = open(output_path, 'w')
-    for i in tqdm(range(len(sequence_list)), desc="Writing FASTA file"):
+    for i in tqdm_module.tqdm(range(len(sequence_list)), desc="Writing FASTA file"):
         identifier_line = '>Seq' + str(i) + '\n'
         output_file.write(identifier_line)
         sequence_line = sequence_list[i]

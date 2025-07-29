@@ -1,6 +1,7 @@
 import numpy as np
 from datetime import datetime
 import pickle
+from tqdm import tqdm
 
 def run_motif_analysis(x_test_tensor, x_synthetic_tensor, output_dir="."):
     """

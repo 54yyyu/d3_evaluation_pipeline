@@ -105,8 +105,11 @@ def save_progress_file(output_dir, completed_analyses, all_results):
         for key, value in results.items():
             if isinstance(value, (int, float, str, bool)):
                 summary[key] = value
-            elif hasattr(value, 'shape'):  # numpy arrays
-                summary[key] = f"Array with shape {value.shape}"
+            elif hasattr(value, 'shape'):
+                if value.shape == ():  # numpy scalar
+                    summary[key] = value.item()
+                else:  # numpy arrays
+                    summary[key] = f"Array with shape {value.shape}"
             else:
                 summary[key] = str(type(value).__name__)
         results_summary[analysis_name] = summary
@@ -141,8 +144,11 @@ def print_analysis_summary(analysis_name, results):
     for key, value in results.items():
         if isinstance(value, (int, float)):
             print(f"  {key}: {value:.6f}")
-        elif hasattr(value, 'shape'):  # numpy arrays
-            print(f"  {key}: Array with shape {value.shape}")
+        elif hasattr(value, 'shape'):
+            if value.shape == ():  # numpy scalar
+                print(f"  {key}: {value.item():.6f}")
+            else:  # numpy arrays
+                print(f"  {key}: Array with shape {value.shape}")
         else:
             print(f"  {key}: {type(value).__name__}")
     print(f"✓ {analysis_name.replace('_', ' ').title()} completed and saved")
@@ -307,7 +313,10 @@ def main():
                     if isinstance(value, (int, float)):
                         print(f"  {key}: {value:.6f}")
                     elif hasattr(value, 'shape'):
-                        print(f"  {key}: Array with shape {value.shape}")
+                        if value.shape == ():  # numpy scalar
+                            print(f"  {key}: {value.item():.6f}")
+                        else:  # numpy arrays
+                            print(f"  {key}: Array with shape {value.shape}")
                     else:
                         print(f"  {key}: {type(value).__name__}")
     
