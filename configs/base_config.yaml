@@ -30,8 +30,19 @@ evaluation:
   # Attribution analysis settings
   attribution_max_samples: 1000  # Max samples for attribution analysis (computational limit)
   
-  # Discriminatability settings
-  discriminatability_output: "discriminatability_data.h5"
+  # Run discriminability similarity evaluation
+  run_discriminability_similarity: true
+
+# Discriminability evaluation settings
+discriminability:
+  validation_split: 0.2  # Fraction of data to use for validation
+  batch_size: 128        # Batch size for classifier training
+  train_max_epochs: 50   # Maximum training epochs
+  patience: 10           # Early stopping patience
+  lr: 0.002             # Learning rate
+  random_seed: 42       # Random seed for data splitting
+  save_training_data: true  # Whether to save training data to H5 file
+  training_data_path: "discriminability_training_data.h5"  # Path to save training data
 
 # Output settings
 output:

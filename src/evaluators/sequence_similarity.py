@@ -16,6 +16,11 @@ from itertools import product
 from tqdm import tqdm
 from typing import Dict, Any, Union, List, Optional
 from .base_evaluator import BaseEvaluator
+from models.discriminability_classifier import (
+    prepare_discriminability_data,
+    save_discriminability_data,
+    train_discriminability_classifier
+)
 
 
 class SequenceSimilarityEvaluator(BaseEvaluator):
@@ -29,6 +34,30 @@ class SequenceSimilarityEvaluator(BaseEvaluator):
             config: Configuration dictionary
         """
         super().__init__(config, "sequence_similarity")
+        
+        # Set up discriminability configuration
+        self.disc_config = config.get('discriminability', {})
+        self._set_default_discriminability_config()
+        
+        # Control which analyses to run
+        self.run_discriminability = config.get('evaluation', {}).get('run_discriminability_similarity', True)
+        
+    def _set_default_discriminability_config(self):
+        """Set default configuration values for discriminability evaluation."""
+        defaults = {
+            'validation_split': 0.2,
+            'batch_size': 128,
+            'train_max_epochs': 50,
+            'patience': 10,
+            'lr': 0.002,
+            'random_seed': 42,
+            'save_training_data': True,
+            'training_data_path': None
+        }
+        
+        for key, value in defaults.items():
+            if key not in self.disc_config:
+                self.disc_config[key] = value
         
     def get_required_inputs(self) -> Dict[str, str]:
         """Get required inputs for sequence similarity evaluation."""
@@ -82,8 +111,9 @@ class SequenceSimilarityEvaluator(BaseEvaluator):
         # 2. K-mer spectrum analysis
         results.update(self._kmer_spectrum_analysis(x_synthetic_np, x_test_np))
         
-        # 3. Prepare data for discriminatability analysis
-        results.update(self._prepare_discriminatability_data(x_synthetic_np, x_test_np))
+        # 3. Discriminability analysis (train classifier to distinguish synthetic vs test)
+        if self.run_discriminability:
+            results.update(self._discriminability_analysis(x_synthetic_np, x_test_np))
         
         # 4. Sequence diversity (self-similarity)
         results.update(self._sequence_diversity_analysis(x_synthetic_np))
@@ -192,40 +222,143 @@ class SequenceSimilarityEvaluator(BaseEvaluator):
         
         return results
     
-    def _prepare_discriminatability_data(self, 
-                                       x_synthetic: np.ndarray,
-                                       x_test: np.ndarray) -> Dict[str, Any]:
+    def _discriminability_analysis(self, 
+                                  x_synthetic: np.ndarray,
+                                  x_test: np.ndarray) -> Dict[str, Any]:
         """
-        Prepare data for discriminatability analysis.
+        Perform discriminability analysis by training a binary classifier.
+        
+        This analysis measures how well a neural network can distinguish between
+        synthetic and test sequences. Lower AUROC indicates better generator
+        performance (synthetic sequences are harder to distinguish from real ones).
         
         Args:
-            x_synthetic: Synthetic sequences
-            x_test: Test sequences
+            x_synthetic: Synthetic sequences (N, L, A)
+            x_test: Test sequences (N, L, A)
             
         Returns:
-            Dictionary indicating discriminatability data is prepared
+            Dictionary with discriminability metrics
         """
-        # Combine sequences and create labels
-        x_combined = np.vstack([x_test, x_synthetic])
-        y_combined = np.vstack([
-            np.ones((x_test.shape[0], 1)),  # Real sequences = 1
-            np.zeros((x_synthetic.shape[0], 1))  # Synthetic sequences = 0  
-        ])
+        print(f"Running discriminability analysis with {len(x_synthetic)} synthetic and {len(x_test)} test sequences...")
         
-        # Transpose to (N, A, L) format for compatibility
-        x_combined = np.transpose(x_combined, (0, 2, 1))
+        # Prepare training data
+        X_train, y_train, X_val, y_val = prepare_discriminability_data(
+            x_synthetic, x_test,
+            validation_split=self.disc_config['validation_split'],
+            random_seed=self.disc_config['random_seed']
+        )
         
-        # Save data for external discriminatability training
-        output_path = self.config.get('discriminatability_output', 'discriminatability_data.h5')
+        print(f"Training set: {len(X_train)} samples ({np.sum(y_train)} synthetic, {np.sum(y_train == 0)} test)")
+        print(f"Validation set: {len(X_val)} samples ({np.sum(y_val)} synthetic, {np.sum(y_val == 0)} test)")
         
-        with h5py.File(output_path, 'w') as f:
-            f.create_dataset('x_train', data=x_combined)
-            f.create_dataset('y_train', data=y_combined)
+        # Save training data if requested
+        training_data_saved_path = None
+        if self.disc_config['save_training_data']:
+            training_data_path = self.disc_config.get('training_data_path')
+            if training_data_path is None:
+                # Create default path
+                training_data_path = "discriminability_training_data.h5"
+            
+            print(f"Saving discriminability training data to {training_data_path}...")
+            save_discriminability_data(X_train, y_train, X_val, y_val, training_data_path)
+            training_data_saved_path = training_data_path
         
-        return {
-            "discriminatability_data_saved": output_path,
-            "discriminatability_note": "Run external classifier training for AUROC evaluation"
+        # Train discriminability classifier
+        print("Training discriminability classifier...")
+        trained_model, final_auroc = train_discriminability_classifier(
+            X_train, y_train, X_val, y_val, self.disc_config
+        )
+        
+        print(f"Discriminability classifier training completed. Final AUROC: {final_auroc:.4f}")
+        
+        # Calculate additional metrics
+        results = self._calculate_discriminability_metrics(
+            trained_model, X_val, y_val, final_auroc, training_data_saved_path
+        )
+        
+        return results
+    
+    def _calculate_discriminability_metrics(self, 
+                                          model: Any,
+                                          X_val: np.ndarray, 
+                                          y_val: np.ndarray,
+                                          auroc: float,
+                                          training_data_path: Optional[str]) -> Dict[str, Any]:
+        """
+        Calculate comprehensive discriminability metrics.
+        
+        Args:
+            model: Trained discriminability classifier
+            X_val: Validation sequences
+            y_val: Validation labels
+            auroc: AUROC score
+            training_data_path: Path where training data was saved
+            
+        Returns:
+            Dictionary with discriminability metrics
+        """
+        # Get predictions
+        X_val_tensor = torch.from_numpy(X_val).float()
+        predictions = model.predict_proba(X_val_tensor)
+        
+        # Calculate various metrics
+        from sklearn.metrics import (
+            roc_auc_score, average_precision_score, 
+            accuracy_score, precision_score, recall_score, f1_score
+        )
+        
+        # Binary predictions using 0.5 threshold
+        binary_predictions = (predictions > 0.5).astype(int)
+        
+        # Calculate metrics
+        accuracy = accuracy_score(y_val, binary_predictions)
+        precision = precision_score(y_val, binary_predictions, zero_division=0)
+        recall = recall_score(y_val, binary_predictions, zero_division=0)
+        f1 = f1_score(y_val, binary_predictions, zero_division=0)
+        average_precision = average_precision_score(y_val, predictions)
+        
+        # Class-specific accuracy
+        synthetic_mask = y_val == 1
+        test_mask = y_val == 0
+        
+        synthetic_accuracy = accuracy_score(y_val[synthetic_mask], binary_predictions[synthetic_mask]) if np.sum(synthetic_mask) > 0 else 0
+        test_accuracy = accuracy_score(y_val[test_mask], binary_predictions[test_mask]) if np.sum(test_mask) > 0 else 0
+        
+        # Summary statistics
+        n_synthetic = np.sum(y_val == 1)
+        n_test = np.sum(y_val == 0)
+        
+        results = {
+            # Primary discriminability metric
+            "discriminability_auroc": float(auroc),
+            
+            # Additional classification metrics
+            "discriminability_accuracy": float(accuracy),
+            "discriminability_precision": float(precision),
+            "discriminability_recall": float(recall),
+            "discriminability_f1_score": float(f1),
+            "discriminability_average_precision": float(average_precision),
+            
+            # Class-specific metrics
+            "discriminability_synthetic_accuracy": float(synthetic_accuracy),
+            "discriminability_test_accuracy": float(test_accuracy),
+            
+            # Data summary
+            "discriminability_n_synthetic_val": int(n_synthetic),
+            "discriminability_n_test_val": int(n_test),
+            "discriminability_validation_split": float(self.disc_config['validation_split']),
+            
+            # Training info
+            "discriminability_training_epochs": int(self.disc_config['train_max_epochs']),
+            "discriminability_batch_size": int(self.disc_config['batch_size']),
+            "discriminability_learning_rate": float(self.disc_config['lr']),
         }
+        
+        # Add training data path if saved
+        if training_data_path:
+            results["discriminability_training_data_path"] = str(training_data_path)
+        
+        return results
     
     def _sequence_diversity_analysis(self, x_synthetic: np.ndarray) -> Dict[str, Any]:
         """

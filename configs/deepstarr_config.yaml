@@ -24,6 +24,7 @@ evaluation:
   run_functional_similarity: true
   run_sequence_similarity: true
   run_compositional_similarity: true
+  run_discriminability_similarity: true
   
   # Optimized batch sizes for DeepSTARR sequences
   batch_size: 4096  # For sequence identity calculations
@@ -48,6 +49,17 @@ evaluation:
     motif_analysis_method: "auto"  # "auto", "tangermeme", or "fimo"
     attribution_method: "gradient_shap"
     attribution_k_smoothing: 6
+
+# DeepSTARR-specific discriminability settings
+discriminability:
+  validation_split: 0.2  # Use 20% for validation
+  batch_size: 128        # Batch size for DeepSTARR-sized sequences
+  train_max_epochs: 50   # Sufficient for binary classification
+  patience: 10           # Early stopping patience
+  lr: 0.002             # Learning rate (same as oracle model)
+  random_seed: 42       # Reproducible data splitting
+  save_training_data: true  # Save for potential future reuse
+  training_data_path: "results/deepstarr/discriminability_training_data.h5"
 
 # Output settings
 output:
