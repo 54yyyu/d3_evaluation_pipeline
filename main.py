@@ -32,6 +32,7 @@ from utils.helpers import extract_data, numpy_to_tensor, load_deepstarr
 from core.attribution_analysis import run_attribution_consistency_analysis
 from core.functional_similarity import run_functional_similarity_analysis  
 from core.motif_analysis import run_motif_analysis
+from core.discriminability_analysis import run_discriminability_analysis
 
 
 def parse_arguments():
@@ -62,6 +63,9 @@ def parse_arguments():
     
     parser.add_argument('--skip-motif', action='store_true',
                        help='Skip motif analysis')
+    
+    parser.add_argument('--skip-discriminability', action='store_true',
+                       help='Skip discriminability analysis')
     
     return parser.parse_args()
 
@@ -214,7 +218,8 @@ def main():
     total_analyses = sum([
         not args.skip_attribution,
         not args.skip_functional, 
-        not args.skip_motif
+        not args.skip_motif,
+        not args.skip_discriminability
     ])
     current_analysis = 0
     
@@ -294,6 +299,45 @@ def main():
         except Exception as e:
             import traceback
             print(f"✗ Motif analysis failed: {e}")
+            print("Full error traceback:")
+            traceback.print_exc()
+            print("Continuing with remaining analyses...")
+
+    # Discriminability Analysis
+    if not args.skip_discriminability:
+        current_analysis += 1
+        print(f"\n[{current_analysis}/{total_analyses}] --- Running Discriminability Analysis ---")
+        try:
+            # Check if discriminability data exists, if not create it first
+            discriminability_file = 'Discriminatability.h5'
+            if not os.path.exists(discriminability_file):
+                print("Discriminability data not found. Creating it from existing data...")
+                from utils.seq_evals_improved import prep_data_for_classification
+                from utils.helpers import write_to_h5
+                
+                # Prepare discriminability data
+                data_dict = prep_data_for_classification(
+                    data['x_test_tensor'], 
+                    data['x_synthetic_tensor']
+                )
+                write_to_h5(discriminability_file, data_dict)
+                print(f"Created discriminability data: {discriminability_file}")
+            
+            discriminability_results = run_discriminability_analysis(
+                output_dir=output_dir,
+                h5_file=discriminability_file
+            )
+            all_results['discriminability_analysis'] = discriminability_results
+            completed_analyses.append('discriminability_analysis')
+            
+            # Save progress immediately
+            print_analysis_summary('discriminability_analysis', discriminability_results)
+            save_progress_file(output_dir, completed_analyses, all_results)
+            save_combined_results(output_dir, all_results)
+            
+        except Exception as e:
+            import traceback
+            print(f"✗ Discriminability analysis failed: {e}")
             print("Full error traceback:")
             traceback.print_exc()
             print("Analysis completed with errors.")
