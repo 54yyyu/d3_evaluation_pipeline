@@ -183,10 +183,10 @@ def _gradient_shap(x_seq: torch.Tensor, model: ModelWrapper, class_index: int = 
     except ImportError:
         raise ImportError("Captum required for attribution analysis")
     
-    N, L, A = x_seq.shape
+    _, L, A = x_seq.shape
     score_cache = []
     
-    for i, x in enumerate(tqdm(x_seq, desc="Computing gradient attributions", unit="seq")):
+    for x in tqdm(x_seq, desc="Computing gradient attributions", unit="seq"):
         # Process single sequence
         x = x.unsqueeze(0)  # Add batch dimension
         x = x.transpose(1, 2)  # Convert to (N, A, L) format for model
