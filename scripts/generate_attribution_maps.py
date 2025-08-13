@@ -53,12 +53,6 @@ def parse_arguments():
         help="Target class index for attribution (default: 0)"
     )
     parser.add_argument(
-        "--k-mer-size",
-        type=int,
-        default=6,
-        help="K-mer size for smoothing (default: 6)"
-    )
-    parser.add_argument(
         "--batch-size",
         type=int,
         default=32,
@@ -138,40 +132,12 @@ def convert_sequences_to_onehot(sequences: np.ndarray) -> np.ndarray:
     return onehot
 
 
-def _process_attribution_map_4d(saliency_map: np.ndarray, k: int = 6) -> np.ndarray:
+def gradient_shap(x_seq: np.ndarray, model: ModelWrapper, class_index: int = 0) -> np.ndarray:
     """
-    Process attribution map with gradient correction, normalization and k-mer smoothing.
-    Keeps result in 4D nucleotide space.
+    Calculate Gradient SHAP attribution scores (simplified original version).
     
     Args:
-        saliency_map: Raw attribution scores with shape (batch_size, seq_length, 4)
-        k: K-mer size for smoothing
-        
-    Returns:
-        Processed attribution map with shape (batch_size, seq_length, 4)
-    """
-    # Apply gradient correction
-    saliency_map = saliency_map - np.mean(saliency_map, axis=-1, keepdims=True)
-    
-    # Apply normalization
-    norm_factor = np.sum(np.sqrt(np.sum(np.square(saliency_map), axis=-1, keepdims=True)), axis=-2, keepdims=True)
-    saliency_map = saliency_map / (norm_factor + 1e-8)
-    
-    # Apply k-mer smoothing
-    saliency_special = saliency_map.copy()
-    for i in range(k-1):
-        rolled = np.roll(saliency_map, -i-1, axis=-2)
-        saliency_special += rolled
-    
-    return saliency_special
-
-
-def _gradient_shap(x_seq: torch.Tensor, model: ModelWrapper, class_index: int = 0) -> np.ndarray:
-    """
-    Calculate Gradient SHAP attribution scores.
-    
-    Args:
-        x_seq: Input sequences with shape (N, L, A)
+        x_seq: Input sequences with shape (N, L, A) 
         model: Wrapped oracle model
         class_index: Target class index
         
@@ -183,42 +149,48 @@ def _gradient_shap(x_seq: torch.Tensor, model: ModelWrapper, class_index: int = 
     except ImportError:
         raise ImportError("Captum required for attribution analysis")
     
-    _, L, A = x_seq.shape
+    # Swap axes to get (N, A, L) for model input
+    x_seq = np.swapaxes(x_seq, 1, 2)
+    _, A, L = x_seq.shape
     score_cache = []
     
     for x in tqdm(x_seq, desc="Computing gradient attributions", unit="seq"):
         # Process single sequence
-        x = x.unsqueeze(0)  # Add batch dimension
-        x = x.transpose(1, 2)  # Convert to (N, A, L) format for model
-        x.requires_grad_(True)
+        x = np.expand_dims(x, axis=0)
+        x_tensor = torch.tensor(x, requires_grad=True, dtype=torch.float32)
         
-        # Create random background - match original parameters
+        # Random background
         num_background = 1000
         null_index = np.random.randint(0, A, size=(num_background, L))
-        x_null = torch.zeros((num_background, A, L))
+        x_null = np.zeros((num_background, A, L))
         for n in range(num_background):
             for l in range(L):
                 x_null[n, null_index[n, l], l] = 1.0
-        x_null.requires_grad_(True)
+        x_null_tensor = torch.tensor(x_null, requires_grad=True, dtype=torch.float32)
         
-        # Calculate Gradient SHAP - match original parameters
+        # Calculate gradient shap
         gradient_shap = GradientShap(model)
         grad = gradient_shap.attribute(
-            x,
+            x_tensor,
             n_samples=100,
             stdevs=0.1,
-            baselines=x_null,
+            baselines=x_null_tensor,
             target=class_index
         )
-        
         grad = grad.data.cpu().numpy()
-        # Apply gradient correction
+        
+        # Process gradients with gradient correction (Majdandzic et al. 2022)
         grad -= np.mean(grad, axis=1, keepdims=True)
         score_cache.append(np.squeeze(grad))
     
     score_cache = np.array(score_cache)
-    # Convert back to (N, L, A) format
-    return np.transpose(score_cache, (0, 2, 1))
+    if len(score_cache.shape) < 3:
+        score_cache = np.expand_dims(score_cache, axis=0)
+    
+    # Return with (N, L, A) format
+    return np.swapaxes(score_cache, 1, 2)
+
+
 
 
 def load_visualization_data(file_path: str):
@@ -244,7 +216,7 @@ def load_visualization_data(file_path: str):
     return h5_file, metadata, step_keys
 
 
-def process_step_attributions(step_group, model, class_index, k_mer_size, batch_size, device):
+def process_step_attributions(step_group, model, class_index, device):
     """
     Process attributions for a single timestep.
     
@@ -252,12 +224,10 @@ def process_step_attributions(step_group, model, class_index, k_mer_size, batch_
         step_group: H5 group for the timestep
         model: Oracle model
         class_index: Target class index
-        k_mer_size: K-mer size for smoothing
-        batch_size: Batch size for processing
         device: Computation device
         
     Returns:
-        Processed attribution matrix
+        Attribution matrix with shape (batch_size, seq_length, 4)
     """
     # Load sequences
     sequences = np.array(step_group['sequence'])  # (batch_size, seq_length)
@@ -265,28 +235,13 @@ def process_step_attributions(step_group, model, class_index, k_mer_size, batch_
     # Convert to one-hot
     sequences_onehot = convert_sequences_to_onehot(sequences)  # (batch_size, seq_length, 4)
     
-    # Convert to tensor and move to device
-    sequences_tensor = torch.from_numpy(sequences_onehot).float().to(device)
+    # Move model to device
+    model.model.to(device)
     
-    # Compute attributions in batches
-    all_attributions = []
-    num_sequences = len(sequences_tensor)
+    # Compute attributions using the simplified original approach
+    attributions = gradient_shap(sequences_onehot, model, class_index)
     
-    for i in range(0, num_sequences, batch_size):
-        end_idx = min(i + batch_size, num_sequences)
-        batch_sequences = sequences_tensor[i:end_idx]
-        
-        # Compute raw attributions
-        batch_attributions = _gradient_shap(batch_sequences, model, class_index)
-        all_attributions.append(batch_attributions)
-    
-    # Concatenate all batches
-    raw_attributions = np.concatenate(all_attributions, axis=0)
-    
-    # Process attributions
-    processed_attributions = _process_attribution_map_4d(raw_attributions, k=k_mer_size)
-    
-    return processed_attributions
+    return attributions
 
 
 def copy_h5_structure(input_file, output_file):
@@ -372,8 +327,7 @@ def main():
                 
                 # Compute and add attribution matrix
                 attribution_matrix = process_step_attributions(
-                    input_step, model_wrapper, args.class_index, 
-                    args.k_mer_size, args.batch_size, device
+                    input_step, model_wrapper, args.class_index, device
                 )
                 
                 # Add attribution matrix to output (convert to float16 to match score_matrix/prob_matrix)
