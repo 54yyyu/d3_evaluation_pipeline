@@ -376,11 +376,11 @@ def main():
                     args.k_mer_size, args.batch_size, device
                 )
                 
-                # Add attribution matrix to output
+                # Add attribution matrix to output (convert to float16 to match score_matrix/prob_matrix)
                 output_step.create_dataset(
                     'attribution_matrix', 
-                    data=attribution_matrix,
-                    dtype=np.float32,
+                    data=attribution_matrix.astype(np.float16),
+                    dtype=np.float16,
                     compression='gzip'
                 )
                 
