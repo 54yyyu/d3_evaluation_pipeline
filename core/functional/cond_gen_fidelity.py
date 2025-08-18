@@ -3,6 +3,10 @@ import torch
 from datetime import datetime
 import pickle
 
+def conditional_generation_fidelity(activity1, activity2):
+    """Compute MSE between predicted activities."""
+    return np.mean((activity1 - activity2)**2)
+
 def run_conditional_generation_fidelity_analysis(deepstarr, x_test_tensor, x_synthetic_tensor, output_dir="."):
     """
     Run conditional generation fidelity analysis.
@@ -20,7 +24,6 @@ def run_conditional_generation_fidelity_analysis(deepstarr, x_test_tensor, x_syn
         dict: Results dictionary with fidelity MSE
     """
     from utils.helpers import load_predictions
-    from utils.seq_evals_improved import conditional_generation_fidelity
     
     current_date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     

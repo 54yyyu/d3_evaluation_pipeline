@@ -29,11 +29,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from deepstarr import PL_DeepSTARR
 from utils.helpers import extract_data, numpy_to_tensor, load_deepstarr
-# Legacy imports for backward compatibility
-from core.attribution_analysis import run_attribution_consistency_analysis
-from core.functional_similarity import run_functional_similarity_analysis  
-from core.motif_analysis import run_motif_analysis
-from core.discriminability_analysis import run_discriminability_analysis
+# Legacy imports removed - using only modular imports now
 
 # New modular imports
 from core.functional.cond_gen_fidelity import run_conditional_generation_fidelity_analysis
@@ -67,26 +63,16 @@ def parse_arguments():
                        default=os.getenv('OUTPUT_DIR', 'results'),
                        help='Output directory for results')
     
-    parser.add_argument('--skip-attribution', action='store_true',
-                       help='Skip attribution consistency analysis')
+    parser.add_argument('--functional', action='store_true',
+                       help='Run functional similarity tests: cond_gen_fidelity, frechet_distance, predictive_dist_shift')
     
-    parser.add_argument('--skip-functional', action='store_true', 
-                       help='Skip functional similarity analysis')
+    parser.add_argument('--sequence', action='store_true', 
+                       help='Run sequence similarity tests: percent_identity, kmer_spectrum_shift, discriminability')
     
-    parser.add_argument('--skip-motif', action='store_true',
-                       help='Skip motif analysis')
+    parser.add_argument('--compositional', action='store_true',
+                       help='Run compositional similarity tests: motif_enrichment, motif_cooccurrence, attribution_consistency')
     
-    parser.add_argument('--skip-discriminability', action='store_true',
-                       help='Skip discriminability analysis')
-    
-    parser.add_argument('--use-modular', action='store_true',
-                       help='Use new modular test structure instead of legacy combined tests')
-    
-    parser.add_argument('--test', type=str, choices=[
-        'cond_gen_fidelity', 'frechet_distance', 'predictive_dist_shift',
-        'percent_identity', 'kmer_spectrum_shift', 'discriminability',
-        'motif_enrichment', 'motif_cooccurrence', 'attribution_consistency'
-    ], help='Run only a specific test (requires --use-modular)')
+    parser.add_argument('--test', type=str, help='Run specific test(s). Single test or comma-separated list. Available: cond_gen_fidelity, frechet_distance, predictive_dist_shift, percent_identity, kmer_spectrum_shift, discriminability, motif_enrichment, motif_cooccurrence, attribution_consistency')
     
     return parser.parse_args()
 
@@ -237,27 +223,36 @@ def main():
     all_results = {}
     completed_analyses = []
     
-    if args.use_modular:
-        if args.test:
-            # Run only specific test
-            total_analyses = 1
-            print(f"\n=== Running Single Test: {args.test} ===")
-            run_single_modular_test(args.test, data, output_dir, all_results, completed_analyses)
-        else:
-            # Run all modular tests
-            run_all_modular_tests(args, data, output_dir, all_results, completed_analyses)
-            total_analyses = len(completed_analyses)  # Simple: count what was actually run
-    else:
-        # Legacy mode
-        total_analyses = sum([
-            not args.skip_attribution,
-            not args.skip_functional, 
-            not args.skip_motif,
-            not args.skip_discriminability
-        ])
+    if args.test:
+        # Parse comma-separated test list
+        test_list = [t.strip() for t in args.test.split(',')]
+        valid_tests = [
+            'cond_gen_fidelity', 'frechet_distance', 'predictive_dist_shift',
+            'percent_identity', 'kmer_spectrum_shift', 'discriminability',
+            'motif_enrichment', 'motif_cooccurrence', 'attribution_consistency'
+        ]
         
-        print(f"\n=== Starting {total_analyses} Analysis Tasks (Legacy Mode) ===")
-        run_legacy_tests(args, data, output_dir, all_results, completed_analyses, total_analyses)
+        # Validate all tests
+        invalid_tests = [t for t in test_list if t not in valid_tests]
+        if invalid_tests:
+            print(f"Error: Invalid test(s): {invalid_tests}")
+            print(f"Valid tests: {valid_tests}")
+            sys.exit(1)
+        
+        total_analyses = len(test_list)
+        if len(test_list) == 1:
+            print(f"\n=== Running Single Test: {test_list[0]} ===")
+        else:
+            print(f"\n=== Running {len(test_list)} Selected Tests: {', '.join(test_list)} ===")
+        
+        # Run each selected test
+        for i, test_name in enumerate(test_list, 1):
+            print(f"\n[{i}/{total_analyses}] --- Running {test_name.replace('_', ' ').title()} ---")
+            run_single_modular_test(test_name, data, output_dir, all_results, completed_analyses)
+    else:
+        # Run tests based on similarity type flags
+        run_similarity_type_tests(args, data, output_dir, all_results, completed_analyses)
+        total_analyses = len(completed_analyses)  # Count what was actually run
     
     
     # Final summary
@@ -312,7 +307,7 @@ def run_single_modular_test(test_name, data, output_dir, all_results, completed_
             discriminability_file = 'Discriminatability.h5'
             if not os.path.exists(discriminability_file):
                 print("Discriminability data not found. Creating it from existing data...")
-                from utils.seq_evals_improved import prep_data_for_classification
+                from core.sequence.discriminability import prep_data_for_classification
                 from utils.helpers import write_to_h5
                 data_dict = prep_data_for_classification(
                     data['x_test_tensor'], data['x_synthetic_tensor'])
@@ -343,151 +338,46 @@ def run_single_modular_test(test_name, data, output_dir, all_results, completed_
         traceback.print_exc()
 
 
-def run_all_modular_tests(args, data, output_dir, all_results, completed_analyses):
-    """Run all modular tests based on skip flags."""
+def run_similarity_type_tests(args, data, output_dir, all_results, completed_analyses):
+    """Run tests based on similarity type flags."""
     tests_to_run = []
     
-    if not args.skip_functional:
-        tests_to_run.extend(['cond_gen_fidelity', 'frechet_distance', 'predictive_dist_shift'])
+    # Determine which tests to run based on flags
+    if not any([args.functional, args.sequence, args.compositional]):
+        # If no specific flags provided, run all tests
+        print("No specific similarity type flags provided. Running all tests.")
+        tests_to_run = [
+            'cond_gen_fidelity', 'frechet_distance', 'predictive_dist_shift',
+            'percent_identity', 'kmer_spectrum_shift', 'discriminability',
+            'motif_enrichment', 'motif_cooccurrence', 'attribution_consistency'
+        ]
+    else:
+        # Run only requested similarity types
+        if args.functional:
+            tests_to_run.extend(['cond_gen_fidelity', 'frechet_distance', 'predictive_dist_shift'])
+        
+        if args.sequence:
+            tests_to_run.extend(['percent_identity', 'kmer_spectrum_shift', 'discriminability'])
+        
+        if args.compositional:
+            tests_to_run.extend(['motif_enrichment', 'motif_cooccurrence', 'attribution_consistency'])
     
-    tests_to_run.extend(['percent_identity', 'kmer_spectrum_shift'])  # Always run sequence tests
+    # Show which types are being run
+    types_running = []
+    if args.functional or not any([args.functional, args.sequence, args.compositional]):
+        types_running.append("Functional")
+    if args.sequence or not any([args.functional, args.sequence, args.compositional]):
+        types_running.append("Sequence") 
+    if args.compositional or not any([args.functional, args.sequence, args.compositional]):
+        types_running.append("Compositional")
     
-    if not args.skip_discriminability:
-        tests_to_run.append('discriminability')
-    
-    if not args.skip_motif:
-        tests_to_run.extend(['motif_enrichment', 'motif_cooccurrence'])
-    
-    if not args.skip_attribution:
-        tests_to_run.append('attribution_consistency')
-    
-    print(f"\n=== Running {len(tests_to_run)} Modular Tests ===")
+    print(f"\n=== Running {len(tests_to_run)} Tests ({', '.join(types_running)} Similarity) ===")
     
     for i, test_name in enumerate(tests_to_run, 1):
         print(f"\n[{i}/{len(tests_to_run)}] --- Running {test_name.replace('_', ' ').title()} ---")
         run_single_modular_test(test_name, data, output_dir, all_results, completed_analyses)
 
 
-def run_legacy_tests(args, data, output_dir, all_results, completed_analyses, total_analyses):
-    """Run legacy combined tests for backward compatibility."""
-    current_analysis = 0
-    
-    # Attribution Consistency Analysis
-    if not args.skip_attribution:
-        current_analysis += 1
-        print(f"\n[{current_analysis}/{total_analyses}] --- Running Attribution Consistency Analysis ---")
-        try:
-            attribution_results = run_attribution_consistency_analysis(
-                data['deepstarr'], 
-                data['sample_seqs'],
-                data['X_test'],
-                output_dir
-            )
-            all_results['attribution_consistency'] = attribution_results
-            completed_analyses.append('attribution_consistency')
-            
-            # Save progress immediately
-            print_analysis_summary('attribution_consistency', attribution_results)
-            save_progress_file(output_dir, completed_analyses, all_results)
-            save_combined_results(output_dir, all_results)
-            
-        except Exception as e:
-            import traceback
-            print(f"✗ Attribution analysis failed: {e}")
-            print("Full error traceback:")
-            traceback.print_exc()
-            print("Continuing with remaining analyses...")
-    
-    # Functional Similarity Analysis
-    if not args.skip_functional:
-        current_analysis += 1
-        print(f"\n[{current_analysis}/{total_analyses}] --- Running Functional Similarity Analysis ---")
-        try:
-            functional_results = run_functional_similarity_analysis(
-                data['deepstarr'],
-                data['x_test_tensor'],
-                data['x_synthetic_tensor'], 
-                data['x_train_tensor'],
-                output_dir
-            )
-            all_results['functional_similarity'] = functional_results
-            completed_analyses.append('functional_similarity')
-            
-            # Save progress immediately
-            print_analysis_summary('functional_similarity', functional_results)
-            save_progress_file(output_dir, completed_analyses, all_results)
-            save_combined_results(output_dir, all_results)
-            
-        except Exception as e:
-            import traceback
-            print(f"✗ Functional similarity analysis failed: {e}")
-            print("Full error traceback:")
-            traceback.print_exc()
-            print("Continuing with remaining analyses...")
-    
-    # Motif Analysis
-    if not args.skip_motif:
-        current_analysis += 1
-        print(f"\n[{current_analysis}/{total_analyses}] --- Running Motif Analysis ---")
-        try:
-            motif_results = run_motif_analysis(
-                data['x_test_tensor'],
-                data['x_synthetic_tensor'],
-                output_dir
-            )
-            all_results['motif_analysis'] = motif_results
-            completed_analyses.append('motif_analysis')
-            
-            # Save progress immediately
-            print_analysis_summary('motif_analysis', motif_results)
-            save_progress_file(output_dir, completed_analyses, all_results)
-            save_combined_results(output_dir, all_results)
-            
-        except Exception as e:
-            import traceback
-            print(f"✗ Motif analysis failed: {e}")
-            print("Full error traceback:")
-            traceback.print_exc()
-            print("Continuing with remaining analyses...")
-
-    # Discriminability Analysis
-    if not args.skip_discriminability:
-        current_analysis += 1
-        print(f"\n[{current_analysis}/{total_analyses}] --- Running Discriminability Analysis ---")
-        try:
-            # Check if discriminability data exists, if not create it first
-            discriminability_file = 'Discriminatability.h5'
-            if not os.path.exists(discriminability_file):
-                print("Discriminability data not found. Creating it from existing data...")
-                from utils.seq_evals_improved import prep_data_for_classification
-                from utils.helpers import write_to_h5
-                
-                # Prepare discriminability data
-                data_dict = prep_data_for_classification(
-                    data['x_test_tensor'], 
-                    data['x_synthetic_tensor']
-                )
-                write_to_h5(discriminability_file, data_dict)
-                print(f"Created discriminability data: {discriminability_file}")
-            
-            discriminability_results = run_discriminability_analysis(
-                output_dir=output_dir,
-                h5_file=discriminability_file
-            )
-            all_results['discriminability_analysis'] = discriminability_results
-            completed_analyses.append('discriminability_analysis')
-            
-            # Save progress immediately
-            print_analysis_summary('discriminability_analysis', discriminability_results)
-            save_progress_file(output_dir, completed_analyses, all_results)
-            save_combined_results(output_dir, all_results)
-            
-        except Exception as e:
-            import traceback
-            print(f"✗ Discriminability analysis failed: {e}")
-            print("Full error traceback:")
-            traceback.print_exc()
-            print("Analysis completed with errors.")
 
 
 if __name__ == "__main__":

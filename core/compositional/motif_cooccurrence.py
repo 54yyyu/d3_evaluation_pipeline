@@ -2,6 +2,135 @@ import numpy as np
 import torch
 from datetime import datetime
 import pickle
+from tqdm import tqdm
+import os
+
+# Try to import memelite first, fallback to pymemesuite
+try:
+    # Try relative import first
+    from utils.seq_evals_func_motifs import motif_count_memelite, make_occurrence_matrix_memelite
+    USE_MEMELITE = True
+except (ImportError, ValueError):
+    try:
+        # Try absolute import as fallback
+        from utils.seq_evals_func_motifs import motif_count_memelite, make_occurrence_matrix_memelite
+        USE_MEMELITE = True
+    except ImportError:
+        try:
+            # Try direct import from same directory
+            import sys
+            sys.path.append('utils')
+            import seq_evals_func_motifs
+            motif_count_memelite = seq_evals_func_motifs.motif_count_memelite
+            make_occurrence_matrix_memelite = seq_evals_func_motifs.make_occurrence_matrix_memelite
+            USE_MEMELITE = True
+        except ImportError:
+            USE_MEMELITE = False
+
+# Always import pymemesuite as fallback
+try:
+    from pymemesuite import fimo
+    from pymemesuite.common import MotifFile, Sequence
+    from pymemesuite.fimo import FIMO
+    PYMEMESUITE_AVAILABLE = True
+except ImportError as e:
+    print(f"Warning: Failed to import pymemesuite: {e}")
+    PYMEMESUITE_AVAILABLE = False
+    # Define dummy classes to avoid NameError
+    class FIMO:
+        def __init__(self):
+            raise ImportError("pymemesuite not available")
+    class MotifFile:
+        def __init__(self, *args):
+            raise ImportError("pymemesuite not available")
+    class Sequence:
+        def __init__(self, *args):
+            raise ImportError("pymemesuite not available")
+
+from Bio import SeqIO
+import Bio
+
+def sequences_to_onehot(sequences):
+    """Convert DNA sequences to one-hot encoding for memelite."""
+    # DNA nucleotide mapping
+    nucleotide_to_index = {'A': 0, 'C': 1, 'G': 2, 'T': 3}
+    
+    # Get max sequence length
+    max_length = max(len(seq) for seq in sequences)
+    
+    # Initialize one-hot array (N, A, L) where N=num_sequences, A=4 nucleotides, L=sequence_length
+    onehot = np.zeros((len(sequences), 4, max_length))
+    
+    for i, seq in tqdm(enumerate(sequences), desc="Converting to one-hot", total=len(sequences)):
+        for j, nucleotide in enumerate(seq.upper()):
+            if nucleotide in nucleotide_to_index:
+                onehot[i, nucleotide_to_index[nucleotide], j] = 1
+    
+    return onehot
+
+def make_occurrence_matrix(path):
+    """
+    path is the filepath to the list of sequences in fasta format
+    returns a matrix containing the motif counts for all the sequences
+    """
+    
+    if USE_MEMELITE:
+        try:
+            # Read sequences and convert to one-hot for memelite
+            sequences = []
+            for record in Bio.SeqIO.parse(path, "fasta"):
+                sequences.append(str(record.seq))
+            
+            onehot_seqs = sequences_to_onehot(sequences)
+            return make_occurrence_matrix_memelite("JASPAR2024_CORE_non-redundant_pfms_meme.txt", onehot_seqs)
+        except Exception as e:
+            # Fall back to pymemesuite if memelite fails
+            print(f"Warning: memelite failed ({e}), falling back to pymemesuite")
+            pass
+
+    # Check if pymemesuite is available
+    if not PYMEMESUITE_AVAILABLE:
+        raise ImportError("Neither memelite nor pymemesuite is available for motif analysis")
+
+    # Original pymemesuite implementation
+    motif_ids = []
+    occurrence = []
+
+    sequences = [
+        Sequence(str(record.seq), name=record.id.encode())
+        for record in Bio.SeqIO.parse(path, "fasta")
+        ]
+
+    
+    try:
+        fimo = FIMO() 
+    except Exception as e:
+        raise RuntimeError(f"Failed to initialize FIMO: {e}. Check that FIMO class is properly imported.")
+    
+    #matrix with m rows and n columns
+    occurrence_matrix = []
+    for sequence in tqdm(sequences, desc="Processing sequences for occurrence matrix"):
+        sequence = [sequence]
+        occurrence = []
+        motif_ids = []
+        with MotifFile("JASPAR2024_CORE_non-redundant_pfms_meme.txt") as motif_file:
+            motifs_list = list(motif_file)
+            motif_file.seek(0)  # Reset to beginning for actual processing
+            for motif in motifs_list:
+                pattern = fimo.score_motif(motif, sequence, motif_file.background)
+                motif_ids.append(motif.accession.decode())
+                occurrence.append(len(pattern.matched_elements))
+        occurrence_matrix.append(occurrence)
+
+    return occurrence_matrix
+
+def covariance_matrix(x):
+    """Compute covariance matrix."""
+    return np.cov(x)
+
+def frobenius_norm(cov, cov2):
+    """Compute Frobenius norm between two covariance matrices."""
+    return np.sqrt(np.sum((cov - cov2)**2))
 
 def run_motif_cooccurrence_analysis(x_test_tensor, x_synthetic_tensor, output_dir="."):
     """
@@ -19,7 +148,6 @@ def run_motif_cooccurrence_analysis(x_test_tensor, x_synthetic_tensor, output_di
         dict: Results dictionary with motif co-occurrence statistics
     """
     from utils.helpers import put_deepstarr_into_NLA, one_hot_to_seq, create_fasta_file
-    from utils.seq_evals_improved import make_occurrence_matrix, frobenius_norm
     
     current_date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     

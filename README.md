@@ -13,7 +13,7 @@ analysis/
 │   └── motif_analysis.py
 ├── utils/                     # Utility functions
 │   ├── helpers.py
-│   └── seq_evals_improved.py
+│   └── seq_evals_func_motifs.py
 └── training/                  # Training scripts (separated)
     ├── EvoAug_run_train.py
     └── finetune_run_train.py
@@ -23,18 +23,18 @@ analysis/
 
 ### Basic Usage
 
-#### Legacy Mode (Default)
 ```bash
+# Run all tests (default)
 python main.py --samples samples.npz --data DeepSTARR_data.h5 --model oracle_DeepSTARR_DeepSTARR_data.ckpt
-```
 
-#### Modular Mode
-```bash
-# Run all modular tests
-python main.py --use-modular --samples samples.npz --data DeepSTARR_data.h5 --model oracle_DeepSTARR_DeepSTARR_data.ckpt
+# Run tests by similarity type
+python main.py --functional --samples samples.npz --data DeepSTARR_data.h5 --model oracle_DeepSTARR_DeepSTARR_data.ckpt
+python main.py --sequence --samples samples.npz --data DeepSTARR_data.h5 --model oracle_DeepSTARR_DeepSTARR_data.ckpt
+python main.py --compositional --samples samples.npz --data DeepSTARR_data.h5 --model oracle_DeepSTARR_DeepSTARR_data.ckpt
 
-# Run a specific test only
-python main.py --use-modular --test cond_gen_fidelity --samples samples.npz --data DeepSTARR_data.h5 --model oracle_DeepSTARR_DeepSTARR_data.ckpt
+# Run specific tests
+python main.py --test cond_gen_fidelity --samples samples.npz --data DeepSTARR_data.h5 --model oracle_DeepSTARR_DeepSTARR_data.ckpt
+python main.py --test "cond_gen_fidelity,frechet_distance" --samples samples.npz --data DeepSTARR_data.h5 --model oracle_DeepSTARR_DeepSTARR_data.ckpt
 ```
 
 ### With Environment Variables
@@ -47,43 +47,24 @@ python analysis/main.py
 
 ### Selective Analysis
 
-#### Legacy Mode
 ```bash
-# Skip attribution analysis
-python main.py --skip-attribution
+# Run only functional similarity tests
+python main.py --functional
 
-# Run only motif analysis
-python main.py --skip-attribution --skip-functional
+# Run multiple similarity types
+python main.py --functional --sequence
+
+# Run specific tests
+python main.py --test frechet_distance
+python main.py --test "motif_enrichment,percent_identity"
 
 # Custom output directory
 python main.py --output-dir my_results
 ```
 
-#### Modular Mode
-```bash
-# Run specific functional similarity test
-python main.py --use-modular --test frechet_distance
-
-# Run all sequence similarity tests (skip others)
-python main.py --use-modular --skip-functional --skip-motif --skip-attribution
-
-# Run individual tests
-python main.py --use-modular --test motif_enrichment
-python main.py --use-modular --test percent_identity
-```
-
 ## Analysis Components
 
-The pipeline now supports both **legacy mode** (original combined tests) and **modular mode** (individual tests organized by similarity type).
-
-### Legacy Mode (Default)
-1. **Attribution Consistency Analysis** - Evaluates attribution consistency using SHAP and entropic information
-2. **Functional Similarity Analysis** - Measures fidelity, Frechet distance, distribution shift, and k-mer statistics  
-3. **Motif Analysis** - Performs motif enrichment and co-occurrence analysis
-4. **Discriminability Analysis** - Binary classifier to distinguish real vs synthetic sequences
-
-### Modular Mode (New)
-Organized by similarity type as described in the paper:
+The pipeline is organized by similarity type as described in the evaluation framework paper:
 
 #### Functional Similarity
 - **Conditional Generation Fidelity** - MSE between oracle predictions 

@@ -26,6 +26,20 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from deepstarr import DeepSTARR
 
+def prep_data_for_classification(x_test_tensor, x_synthetic_tensor):
+    """Prepare data for discriminability classification."""
+    x_train = np.vstack([x_test_tensor.detach().cpu().numpy(), x_synthetic_tensor.detach().cpu().numpy()])
+    y_train = np.vstack([np.ones((x_test_tensor.shape[0],1)), np.zeros((x_synthetic_tensor.shape[0],1))])
+    x_train = np.transpose(x_train, (0, 2, 1)) 
+
+    #write x_train and y_train into dict to create .h5 file
+    data_dict = {
+        'x_train': x_train,
+        'y_train': y_train,
+    }
+
+    return data_dict
+
 
 class BinaryDeepSTARR(nn.Module):
     """

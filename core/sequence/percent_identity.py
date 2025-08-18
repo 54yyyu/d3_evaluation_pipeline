@@ -2,6 +2,32 @@ import numpy as np
 import torch
 from datetime import datetime
 import pickle
+from tqdm import tqdm
+
+def calculate_cross_sequence_identity_batch(X_train, X_test, batch_size):
+    """Calculate cross-sequence identity using batched dot products."""
+    num_train, seq_length, alphabet_size = X_train.shape    
+    num_test = X_test.shape[0]
+    
+    # Reshape the matrices for dot product computation
+    X_train = np.reshape(X_train, [-1, seq_length * alphabet_size])
+    X_test = np.reshape(X_test, [-1, seq_length * alphabet_size])
+    
+    # Initialize the matrix to store the results
+    seq_identity = np.zeros((num_train, num_test)).astype(np.int8)
+    
+    # Process the training data in batches
+    total_batches = (num_train + batch_size - 1) // batch_size
+    for start_idx in tqdm(range(0, num_train, batch_size), desc="Computing sequence identity", total=total_batches):
+        end_idx = min(start_idx + batch_size, num_train)
+        
+        # Compute the dot product for this batch
+        batch_result = np.dot(X_train[start_idx:end_idx], X_test.T) 
+        
+        # Store the result in the corresponding slice of the output matrix
+        seq_identity[start_idx:end_idx, :] = batch_result.astype(np.int8)
+    
+    return seq_identity
 
 def run_percent_identity_analysis(x_synthetic_tensor, x_train_tensor, output_dir="."):
     """
@@ -18,7 +44,6 @@ def run_percent_identity_analysis(x_synthetic_tensor, x_train_tensor, output_dir
     Returns:
         dict: Results dictionary with percent identity metrics
     """
-    from utils.seq_evals_improved import calculate_cross_sequence_identity_batch
     
     current_date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     

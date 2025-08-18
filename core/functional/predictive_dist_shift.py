@@ -2,6 +2,20 @@ import numpy as np
 import torch
 from datetime import datetime
 import pickle
+import scipy.stats
+
+def predictive_distribution_shift(x_synthetic_tensor, x_test_tensor):
+    """Compute Kolmogorov-Smirnov test statistic between sequence distributions."""
+    # encode bases using 0,1,2,3 (eliminate a dimension)
+    base_indices_test = np.argmax(x_test_tensor.detach().cpu().numpy(), axis=1)
+    base_indices_syn = np.argmax(x_synthetic_tensor.detach().cpu().numpy(), axis=1)
+
+    # flatten the arrays (now they are one dimension)
+    base_indices_test_f = base_indices_test.flatten()
+    base_indices_syn_f = base_indices_syn.flatten()
+
+    # return ks test statistic
+    return scipy.stats.ks_2samp(base_indices_syn_f, base_indices_test_f).statistic
 
 def run_predictive_distribution_shift_analysis(x_test_tensor, x_synthetic_tensor, output_dir="."):
     """
@@ -18,7 +32,6 @@ def run_predictive_distribution_shift_analysis(x_test_tensor, x_synthetic_tensor
     Returns:
         dict: Results dictionary with distribution shift metric
     """
-    from utils.seq_evals_improved import predictive_distribution_shift
     
     current_date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     
