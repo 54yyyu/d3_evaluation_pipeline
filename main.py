@@ -29,10 +29,22 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from deepstarr import PL_DeepSTARR
 from utils.helpers import extract_data, numpy_to_tensor, load_deepstarr
+# Legacy imports for backward compatibility
 from core.attribution_analysis import run_attribution_consistency_analysis
 from core.functional_similarity import run_functional_similarity_analysis  
 from core.motif_analysis import run_motif_analysis
 from core.discriminability_analysis import run_discriminability_analysis
+
+# New modular imports
+from core.functional.cond_gen_fidelity import run_conditional_generation_fidelity_analysis
+from core.functional.frechet_distance import run_frechet_distance_analysis
+from core.functional.predictive_dist_shift import run_predictive_distribution_shift_analysis
+from core.sequence.percent_identity import run_percent_identity_analysis
+from core.sequence.kmer_spectrum_shift import run_kmer_spectrum_shift_analysis
+from core.sequence.discriminability import run_discriminability_analysis as run_discriminability_analysis_modular
+from core.compositional.motif_enrichment import run_motif_enrichment_analysis
+from core.compositional.motif_cooccurrence import run_motif_cooccurrence_analysis
+from core.compositional.attribution_consistency import run_attribution_consistency_analysis as run_attribution_consistency_analysis_modular
 
 
 def parse_arguments():
@@ -66,6 +78,15 @@ def parse_arguments():
     
     parser.add_argument('--skip-discriminability', action='store_true',
                        help='Skip discriminability analysis')
+    
+    parser.add_argument('--use-modular', action='store_true',
+                       help='Use new modular test structure instead of legacy combined tests')
+    
+    parser.add_argument('--test', type=str, choices=[
+        'cond_gen_fidelity', 'frechet_distance', 'predictive_dist_shift',
+        'percent_identity', 'kmer_spectrum_shift', 'discriminability',
+        'motif_enrichment', 'motif_cooccurrence', 'attribution_consistency'
+    ], help='Run only a specific test (requires --use-modular)')
     
     return parser.parse_args()
 
@@ -215,15 +236,140 @@ def main():
     # Initialize tracking
     all_results = {}
     completed_analyses = []
-    total_analyses = sum([
-        not args.skip_attribution,
-        not args.skip_functional, 
-        not args.skip_motif,
-        not args.skip_discriminability
-    ])
-    current_analysis = 0
     
-    print(f"\n=== Starting {total_analyses} Analysis Tasks ===")
+    if args.use_modular:
+        if args.test:
+            # Run only specific test
+            print(f"\n=== Running Single Test: {args.test} ===")
+            run_single_modular_test(args.test, data, output_dir, all_results, completed_analyses)
+        else:
+            # Run all modular tests
+            run_all_modular_tests(args, data, output_dir, all_results, completed_analyses)
+    else:
+        # Legacy mode
+        total_analyses = sum([
+            not args.skip_attribution,
+            not args.skip_functional, 
+            not args.skip_motif,
+            not args.skip_discriminability
+        ])
+        current_analysis = 0
+        
+        print(f"\n=== Starting {total_analyses} Analysis Tasks (Legacy Mode) ===")
+        run_legacy_tests(args, data, output_dir, all_results, completed_analyses, total_analyses)
+    
+    
+    # Final summary
+    print(f"\n=== Analysis Pipeline Complete ===")
+    print(f"Completed: {len(completed_analyses)}/{total_analyses} analyses")
+    print(f"All results saved to: {output_dir}")
+    
+    if completed_analyses:
+        print(f"\n--- Final Results Summary ---")
+        for analysis_name in completed_analyses:
+            if analysis_name in all_results:
+                results = all_results[analysis_name]
+                print(f"\n{analysis_name.replace('_', ' ').title()}:")
+                for key, value in results.items():
+                    if isinstance(value, (int, float)):
+                        print(f"  {key}: {value:.6f}")
+                    elif hasattr(value, 'shape'):
+                        if value.shape == ():  # numpy scalar
+                            print(f"  {key}: {value.item():.6f}")
+                        else:  # numpy arrays
+                            print(f"  {key}: Array with shape {value.shape}")
+                    else:
+                        print(f"  {key}: {type(value).__name__}")
+    
+    if len(completed_analyses) < total_analyses:
+        failed_count = total_analyses - len(completed_analyses)
+        print(f"\n⚠️  {failed_count} analysis(es) failed - check output for details")
+    else:
+        print(f"\n✅ All analyses completed successfully!")
+
+
+def run_single_modular_test(test_name, data, output_dir, all_results, completed_analyses):
+    """Run a single modular test."""
+    try:
+        if test_name == 'cond_gen_fidelity':
+            results = run_conditional_generation_fidelity_analysis(
+                data['deepstarr'], data['x_test_tensor'], data['x_synthetic_tensor'], output_dir)
+        elif test_name == 'frechet_distance':
+            results = run_frechet_distance_analysis(
+                data['deepstarr'], data['x_test_tensor'], data['x_synthetic_tensor'], output_dir)
+        elif test_name == 'predictive_dist_shift':
+            results = run_predictive_distribution_shift_analysis(
+                data['x_test_tensor'], data['x_synthetic_tensor'], output_dir)
+        elif test_name == 'percent_identity':
+            results = run_percent_identity_analysis(
+                data['x_synthetic_tensor'], data['x_train_tensor'], output_dir)
+        elif test_name == 'kmer_spectrum_shift':
+            results = run_kmer_spectrum_shift_analysis(
+                data['x_test_tensor'], data['x_synthetic_tensor'], output_dir=output_dir)
+        elif test_name == 'discriminability':
+            # Check if discriminability data exists, if not create it first
+            discriminability_file = 'Discriminatability.h5'
+            if not os.path.exists(discriminability_file):
+                print("Discriminability data not found. Creating it from existing data...")
+                from utils.seq_evals_improved import prep_data_for_classification
+                from utils.helpers import write_to_h5
+                data_dict = prep_data_for_classification(
+                    data['x_test_tensor'], data['x_synthetic_tensor'])
+                write_to_h5(discriminability_file, data_dict)
+                print(f"Created discriminability data: {discriminability_file}")
+            results = run_discriminability_analysis_modular(
+                output_dir=output_dir, h5_file=discriminability_file)
+        elif test_name == 'motif_enrichment':
+            results = run_motif_enrichment_analysis(
+                data['x_test_tensor'], data['x_synthetic_tensor'], output_dir)
+        elif test_name == 'motif_cooccurrence':
+            results = run_motif_cooccurrence_analysis(
+                data['x_test_tensor'], data['x_synthetic_tensor'], output_dir)
+        elif test_name == 'attribution_consistency':
+            results = run_attribution_consistency_analysis_modular(
+                data['deepstarr'], data['sample_seqs'], data['X_test'], output_dir)
+        
+        all_results[test_name] = results
+        completed_analyses.append(test_name)
+        print_analysis_summary(test_name, results)
+        save_progress_file(output_dir, completed_analyses, all_results)
+        save_combined_results(output_dir, all_results)
+        
+    except Exception as e:
+        import traceback
+        print(f"✗ {test_name} analysis failed: {e}")
+        print("Full error traceback:")
+        traceback.print_exc()
+
+
+def run_all_modular_tests(args, data, output_dir, all_results, completed_analyses):
+    """Run all modular tests based on skip flags."""
+    tests_to_run = []
+    
+    if not args.skip_functional:
+        tests_to_run.extend(['cond_gen_fidelity', 'frechet_distance', 'predictive_dist_shift'])
+    
+    tests_to_run.extend(['percent_identity', 'kmer_spectrum_shift'])  # Always run sequence tests
+    
+    if not args.skip_discriminability:
+        tests_to_run.append('discriminability')
+    
+    if not args.skip_motif:
+        tests_to_run.extend(['motif_enrichment', 'motif_cooccurrence'])
+    
+    if not args.skip_attribution:
+        tests_to_run.append('attribution_consistency')
+    
+    print(f"\n=== Running {len(tests_to_run)} Modular Tests ===")
+    
+    for i, test_name in enumerate(tests_to_run, 1):
+        print(f"\n[{i}/{len(tests_to_run)}] --- Running {test_name.replace('_', ' ').title()} ---")
+        run_single_modular_test(test_name, data, output_dir, all_results, completed_analyses)
+
+
+def run_legacy_tests(args, data, output_dir, all_results, completed_analyses, total_analyses):
+    """Run legacy combined tests for backward compatibility."""
+    current_analysis = 0
     
     # Attribution Consistency Analysis
     if not args.skip_attribution:
@@ -341,34 +487,6 @@ def main():
             print("Full error traceback:")
             traceback.print_exc()
             print("Analysis completed with errors.")
-    
-    # Final summary
-    print(f"\n=== Analysis Pipeline Complete ===")
-    print(f"Completed: {len(completed_analyses)}/{total_analyses} analyses")
-    print(f"All results saved to: {output_dir}")
-    
-    if completed_analyses:
-        print(f"\n--- Final Results Summary ---")
-        for analysis_name in completed_analyses:
-            if analysis_name in all_results:
-                results = all_results[analysis_name]
-                print(f"\n{analysis_name.replace('_', ' ').title()}:")
-                for key, value in results.items():
-                    if isinstance(value, (int, float)):
-                        print(f"  {key}: {value:.6f}")
-                    elif hasattr(value, 'shape'):
-                        if value.shape == ():  # numpy scalar
-                            print(f"  {key}: {value.item():.6f}")
-                        else:  # numpy arrays
-                            print(f"  {key}: Array with shape {value.shape}")
-                    else:
-                        print(f"  {key}: {type(value).__name__}")
-    
-    if len(completed_analyses) < total_analyses:
-        failed_count = total_analyses - len(completed_analyses)
-        print(f"\n⚠️  {failed_count} analysis(es) failed - check output for details")
-    else:
-        print(f"\n✅ All analyses completed successfully!")
 
 
 if __name__ == "__main__":

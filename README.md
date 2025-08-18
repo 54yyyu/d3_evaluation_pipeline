@@ -22,8 +22,19 @@ analysis/
 ## Usage
 
 ### Basic Usage
+
+#### Legacy Mode (Default)
 ```bash
-python analysis/main.py --samples samples.npz --data DeepSTARR_data.h5 --model oracle_DeepSTARR_DeepSTARR_data.ckpt
+python main.py --samples samples.npz --data DeepSTARR_data.h5 --model oracle_DeepSTARR_DeepSTARR_data.ckpt
+```
+
+#### Modular Mode
+```bash
+# Run all modular tests
+python main.py --use-modular --samples samples.npz --data DeepSTARR_data.h5 --model oracle_DeepSTARR_DeepSTARR_data.ckpt
+
+# Run a specific test only
+python main.py --use-modular --test cond_gen_fidelity --samples samples.npz --data DeepSTARR_data.h5 --model oracle_DeepSTARR_DeepSTARR_data.ckpt
 ```
 
 ### With Environment Variables
@@ -35,22 +46,59 @@ python analysis/main.py
 ```
 
 ### Selective Analysis
+
+#### Legacy Mode
 ```bash
 # Skip attribution analysis
-python analysis/main.py --skip-attribution
+python main.py --skip-attribution
 
 # Run only motif analysis
-python analysis/main.py --skip-attribution --skip-functional
+python main.py --skip-attribution --skip-functional
 
 # Custom output directory
-python analysis/main.py --output-dir my_results
+python main.py --output-dir my_results
+```
+
+#### Modular Mode
+```bash
+# Run specific functional similarity test
+python main.py --use-modular --test frechet_distance
+
+# Run all sequence similarity tests (skip others)
+python main.py --use-modular --skip-functional --skip-motif --skip-attribution
+
+# Run individual tests
+python main.py --use-modular --test motif_enrichment
+python main.py --use-modular --test percent_identity
 ```
 
 ## Analysis Components
 
+The pipeline now supports both **legacy mode** (original combined tests) and **modular mode** (individual tests organized by similarity type).
+
+### Legacy Mode (Default)
 1. **Attribution Consistency Analysis** - Evaluates attribution consistency using SHAP and entropic information
 2. **Functional Similarity Analysis** - Measures fidelity, Frechet distance, distribution shift, and k-mer statistics  
 3. **Motif Analysis** - Performs motif enrichment and co-occurrence analysis
+4. **Discriminability Analysis** - Binary classifier to distinguish real vs synthetic sequences
+
+### Modular Mode (New)
+Organized by similarity type as described in the paper:
+
+#### Functional Similarity
+- **Conditional Generation Fidelity** - MSE between oracle predictions 
+- **Fréchet Distance** - Distribution comparison of oracle embeddings
+- **Predictive Distribution Shift** - Kolmogorov-Smirnov test on predictions
+
+#### Sequence Similarity  
+- **Percent Identity** - Normalized Hamming distance for memorization/diversity
+- **k-mer Spectrum Shift** - Jensen-Shannon divergence of k-mer frequencies
+- **Discriminability** - Binary classifier AUROC score
+
+#### Compositional Similarity
+- **Motif Enrichment** - Pearson correlation of motif occurrence counts
+- **Motif Co-occurrence** - Frobenius norm of motif covariance matrices
+- **Attribution Consistency** - KL divergence of attribution patterns
 
 ## Output
 
@@ -111,3 +159,36 @@ The analysis pipeline uses an intelligent fallback system for motif analysis:
    - Original implementation preserved
 
 The fallback is automatic and transparent - no code changes needed.
+
+## Oracle Model Requirements
+
+Each test's dependency on the oracle model:
+
+| Test Name | Requires Oracle Model | Similarity Type | Script Location |
+|-----------|----------------------|-----------------|------------------|
+| **Conditional Generation Fidelity** | ✅ Yes | Functional | `core/functional/cond_gen_fidelity.py` |
+| **Fréchet Distance** | ✅ Yes | Functional | `core/functional/frechet_distance.py` |
+| **Predictive Distribution Shift** | ❌ No | Functional | `core/functional/predictive_dist_shift.py` |
+| **Percent Identity** | ❌ No | Sequence | `core/sequence/percent_identity.py` |
+| **k-mer Spectrum Shift** | ❌ No | Sequence | `core/sequence/kmer_spectrum_shift.py` |
+| **Discriminability** | ❌ No* | Sequence | `core/sequence/discriminability.py` |
+| **Motif Enrichment** | ❌ No | Compositional | `core/compositional/motif_enrichment.py` |
+| **Motif Co-occurrence** | ❌ No | Compositional | `core/compositional/motif_cooccurrence.py` |
+| **Attribution Consistency** | ✅ Yes | Compositional | `core/compositional/attribution_consistency.py` |
+
+*Discriminability trains its own binary classifier, so it doesn't require the oracle model.
+
+### Tests Requiring Oracle Model (4/9)
+These tests need the trained DeepSTARR model to compute predictions or embeddings:
+- Conditional Generation Fidelity
+- Fréchet Distance  
+- Attribution Consistency
+
+### Tests Not Requiring Oracle Model (5/9)
+These tests work directly with sequence data:
+- Predictive Distribution Shift
+- Percent Identity
+- k-mer Spectrum Shift
+- Discriminability (uses own classifier)
+- Motif Enrichment
+- Motif Co-occurrence
