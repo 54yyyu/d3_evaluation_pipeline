@@ -240,11 +240,13 @@ def main():
     if args.use_modular:
         if args.test:
             # Run only specific test
+            total_analyses = 1
             print(f"\n=== Running Single Test: {args.test} ===")
             run_single_modular_test(args.test, data, output_dir, all_results, completed_analyses)
         else:
             # Run all modular tests
             run_all_modular_tests(args, data, output_dir, all_results, completed_analyses)
+            total_analyses = len(completed_analyses)  # Simple: count what was actually run
     else:
         # Legacy mode
         total_analyses = sum([
@@ -253,7 +255,6 @@ def main():
             not args.skip_motif,
             not args.skip_discriminability
         ])
-        current_analysis = 0
         
         print(f"\n=== Starting {total_analyses} Analysis Tasks (Legacy Mode) ===")
         run_legacy_tests(args, data, output_dir, all_results, completed_analyses, total_analyses)
