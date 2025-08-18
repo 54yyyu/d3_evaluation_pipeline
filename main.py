@@ -74,6 +74,10 @@ def parse_arguments():
     
     parser.add_argument('--test', type=str, help='Run specific test(s). Single test or comma-separated list. Available: cond_gen_fidelity, frechet_distance, predictive_dist_shift, percent_identity, kmer_spectrum_shift, discriminability, motif_enrichment, motif_cooccurrence, attribution_consistency')
     
+    parser.add_argument('--motif-db', type=str, 
+                       default='JASPAR2024_CORE_non-redundant_pfms_meme.txt',
+                       help='Path to motif database file for motif analysis (default: JASPAR2024_CORE_non-redundant_pfms_meme.txt)')
+    
     return parser.parse_args()
 
 
@@ -317,10 +321,10 @@ def run_single_modular_test(test_name, data, output_dir, all_results, completed_
                 output_dir=output_dir, h5_file=discriminability_file)
         elif test_name == 'motif_enrichment':
             results = run_motif_enrichment_analysis(
-                data['x_test_tensor'], data['x_synthetic_tensor'], output_dir)
+                data['x_test_tensor'], data['x_synthetic_tensor'], output_dir, args.motif_db)
         elif test_name == 'motif_cooccurrence':
             results = run_motif_cooccurrence_analysis(
-                data['x_test_tensor'], data['x_synthetic_tensor'], output_dir)
+                data['x_test_tensor'], data['x_synthetic_tensor'], output_dir, args.motif_db)
         elif test_name == 'attribution_consistency':
             results = run_attribution_consistency_analysis_modular(
                 data['deepstarr'], data['sample_seqs'], data['X_test'], output_dir)

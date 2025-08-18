@@ -60,6 +60,10 @@ python main.py --test "motif_enrichment,percent_identity"
 
 # Custom output directory
 python main.py --output-dir my_results
+
+# Custom motif database for compositional similarity tests
+python main.py --compositional --motif-db /path/to/custom_motifs.meme
+python main.py --test motif_enrichment --motif-db /path/to/custom_motifs.meme
 ```
 
 ## Analysis Components
@@ -153,11 +157,13 @@ Each test's dependency on the oracle model:
 | **Percent Identity** | ❌ No | Sequence | `core/sequence/percent_identity.py` |
 | **k-mer Spectrum Shift** | ❌ No | Sequence | `core/sequence/kmer_spectrum_shift.py` |
 | **Discriminability** | ❌ No* | Sequence | `core/sequence/discriminability.py` |
-| **Motif Enrichment** | ❌ No | Compositional | `core/compositional/motif_enrichment.py` |
-| **Motif Co-occurrence** | ❌ No | Compositional | `core/compositional/motif_cooccurrence.py` |
+| **Motif Enrichment** | ❌ No* | Compositional | `core/compositional/motif_enrichment.py` |
+| **Motif Co-occurrence** | ❌ No* | Compositional | `core/compositional/motif_cooccurrence.py` |
 | **Attribution Consistency** | ✅ Yes | Compositional | `core/compositional/attribution_consistency.py` |
 
 *Discriminability trains its own binary classifier, so it doesn't require the oracle model.
+
+**Motif tests require a motif database file (defaults to JASPAR2024_CORE_non-redundant_pfms_meme.txt, can be customized with `--motif-db`).
 
 ### Tests Requiring Oracle Model (4/9)
 These tests need the trained DeepSTARR model to compute predictions or embeddings:
