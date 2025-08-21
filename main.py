@@ -252,7 +252,7 @@ def main():
         # Run each selected test
         for i, test_name in enumerate(test_list, 1):
             print(f"\n[{i}/{total_analyses}] --- Running {test_name.replace('_', ' ').title()} ---")
-            run_single_modular_test(test_name, data, output_dir, all_results, completed_analyses)
+            run_single_modular_test(test_name, data, output_dir, all_results, completed_analyses, args.motif_db)
     else:
         # Run tests based on similarity type flags
         run_similarity_type_tests(args, data, output_dir, all_results, completed_analyses)
@@ -288,7 +288,7 @@ def main():
         print(f"\n✅ All analyses completed successfully!")
 
 
-def run_single_modular_test(test_name, data, output_dir, all_results, completed_analyses):
+def run_single_modular_test(test_name, data, output_dir, all_results, completed_analyses, motif_db_path='JASPAR2024_CORE_non-redundant_pfms_meme.txt'):
     """Run a single modular test."""
     try:
         if test_name == 'cond_gen_fidelity':
@@ -321,10 +321,10 @@ def run_single_modular_test(test_name, data, output_dir, all_results, completed_
                 output_dir=output_dir, h5_file=discriminability_file)
         elif test_name == 'motif_enrichment':
             results = run_motif_enrichment_analysis(
-                data['x_test_tensor'], data['x_synthetic_tensor'], output_dir, args.motif_db)
+                data['x_test_tensor'], data['x_synthetic_tensor'], output_dir, motif_db_path)
         elif test_name == 'motif_cooccurrence':
             results = run_motif_cooccurrence_analysis(
-                data['x_test_tensor'], data['x_synthetic_tensor'], output_dir, args.motif_db)
+                data['x_test_tensor'], data['x_synthetic_tensor'], output_dir, motif_db_path)
         elif test_name == 'attribution_consistency':
             results = run_attribution_consistency_analysis_modular(
                 data['deepstarr'], data['sample_seqs'], data['X_test'], output_dir)
@@ -379,7 +379,7 @@ def run_similarity_type_tests(args, data, output_dir, all_results, completed_ana
     
     for i, test_name in enumerate(tests_to_run, 1):
         print(f"\n[{i}/{len(tests_to_run)}] --- Running {test_name.replace('_', ' ').title()} ---")
-        run_single_modular_test(test_name, data, output_dir, all_results, completed_analyses)
+        run_single_modular_test(test_name, data, output_dir, all_results, completed_analyses, args.motif_db)
 
 
 
