@@ -165,7 +165,8 @@ def run_motif_enrichment_analysis(x_test_tensor, x_synthetic_tensor, output_dir=
     pr = enrich_pr(test_motif_counts, synthetic_motif_counts)
     
     results = {
-        'pearson_r_statistic': pr
+        'pearson_r_statistic': pr.statistic,
+        'pearson_r_pvalue': pr.pvalue
     }
     
     # Save results
