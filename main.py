@@ -64,15 +64,22 @@ def parse_arguments():
                        help='Output directory for results')
     
     parser.add_argument('--functional', action='store_true',
-                       help='Run functional similarity tests: cond_gen_fidelity, frechet_distance, predictive_dist_shift')
+                       help="""Run functional similarity tests: 
+                        cond_gen_fidelity, frechet_distance, predictive_dist_shift""")
     
     parser.add_argument('--sequence', action='store_true', 
-                       help='Run sequence similarity tests: percent_identity, kmer_spectrum_shift, discriminability')
+                       help="""Run sequence similarity tests: 
+                        percent_identity, kmer_spectrum_shift, discriminability""")
     
     parser.add_argument('--compositional', action='store_true',
-                       help='Run compositional similarity tests: motif_enrichment, motif_cooccurrence, attribution_consistency')
+                       help="""Run compositional similarity tests: 
+                        motif_enrichment, motif_cooccurrence, attribution_consistency""")
     
-    parser.add_argument('--test', type=str, help='Run specific test(s). Single test or comma-separated list. Available: cond_gen_fidelity, frechet_distance, predictive_dist_shift, percent_identity, kmer_spectrum_shift, discriminability, motif_enrichment, motif_cooccurrence, attribution_consistency')
+    parser.add_argument('--test', type=str, help="""Run specific test(s). 
+                        Single test or comma-separated list. 
+                        Available: cond_gen_fidelity, frechet_distance, predictive_dist_shift, 
+                        percent_identity, kmer_spectrum_shift, discriminability, 
+                        motif_enrichment, motif_cooccurrence, attribution_consistency""")
     
     return parser.parse_args()
 
