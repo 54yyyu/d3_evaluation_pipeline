@@ -69,7 +69,7 @@ def sequences_to_onehot(sequences):
     
     return onehot
 
-def motif_count(path, path_to_database):
+def motif_count(path, path_to_database='JASPAR2024_CORE_non-redundant_pfms_meme.txt'):
     """
     path is the filepath to the list of sequences in fasta format
     returns a dictionary containing the motif counts for all the sequences
@@ -107,7 +107,7 @@ def motif_count(path, path_to_database):
     except Exception as e:
         raise RuntimeError(f"Failed to initialize FIMO: {e}. Check that FIMO class is properly imported.")
         
-    with MotifFile("JASPAR2024_CORE_non-redundant_pfms_meme.txt") as motif_file:
+    with MotifFile(path_to_database) as motif_file:
         motifs_list = list(motif_file)
         motif_file.seek(0)  # Reset to beginning for actual processing
         for motif in tqdm(motifs_list, desc="Scanning motifs"):
@@ -126,7 +126,7 @@ def enrich_pr(count_1, count_2):
     
     return scipy.stats.pearsonr(c_1, c_2)
 
-def run_motif_enrichment_analysis(x_test_tensor, x_synthetic_tensor, output_dir="."):
+def run_motif_enrichment_analysis(x_test_tensor, x_synthetic_tensor, output_dir=".", motif_db_path='JASPAR2024_CORE_non-redundant_pfms_meme.txt'):
     """
     Run motif enrichment analysis.
     
@@ -137,6 +137,7 @@ def run_motif_enrichment_analysis(x_test_tensor, x_synthetic_tensor, output_dir=
         x_test_tensor: Test sequences tensor
         x_synthetic_tensor: Synthetic sequences tensor
         output_dir: Directory to save results
+        motif_db_path: Path to motif database file (default: JASPAR2024_CORE_non-redundant_pfms_meme.txt)
         
     Returns:
         dict: Results dictionary with motif enrichment statistics
@@ -157,14 +158,15 @@ def run_motif_enrichment_analysis(x_test_tensor, x_synthetic_tensor, output_dir=
     create_fasta_file(x_test_e, 'sub_test_seq.txt')
 
     print("Scanning test sequences for motifs...")
-    test_motif_counts = motif_count('sub_test_seq.txt', 'JASPAR2024_CORE_non-redundant_pfms_meme.txt')
+    test_motif_counts = motif_count('sub_test_seq.txt', motif_db_path)
     print("Scanning synthetic sequences for motifs...")
-    synthetic_motif_counts = motif_count('sub_synthetic_seq.txt', 'JASPAR2024_CORE_non-redundant_pfms_meme.txt')
+    synthetic_motif_counts = motif_count('sub_synthetic_seq.txt', motif_db_path)
     print("Computing enrichment statistics...")
     pr = enrich_pr(test_motif_counts, synthetic_motif_counts)
     
     results = {
-        'pearson_r_statistic': pr
+        'pearson_r_statistic': pr.statistic,
+        'pearson_r_pvalue': pr.pvalue
     }
     
     # Save results

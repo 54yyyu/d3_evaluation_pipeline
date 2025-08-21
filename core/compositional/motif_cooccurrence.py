@@ -68,7 +68,7 @@ def sequences_to_onehot(sequences):
     
     return onehot
 
-def make_occurrence_matrix(path):
+def make_occurrence_matrix(path, motif_db_path='JASPAR2024_CORE_non-redundant_pfms_meme.txt'):
     """
     path is the filepath to the list of sequences in fasta format
     returns a matrix containing the motif counts for all the sequences
@@ -82,7 +82,7 @@ def make_occurrence_matrix(path):
                 sequences.append(str(record.seq))
             
             onehot_seqs = sequences_to_onehot(sequences)
-            return make_occurrence_matrix_memelite("JASPAR2024_CORE_non-redundant_pfms_meme.txt", onehot_seqs)
+            return make_occurrence_matrix_memelite(motif_db_path, onehot_seqs)
         except Exception as e:
             # Fall back to pymemesuite if memelite fails
             print(f"Warning: memelite failed ({e}), falling back to pymemesuite")
@@ -113,7 +113,7 @@ def make_occurrence_matrix(path):
         sequence = [sequence]
         occurrence = []
         motif_ids = []
-        with MotifFile("JASPAR2024_CORE_non-redundant_pfms_meme.txt") as motif_file:
+        with MotifFile(motif_db_path) as motif_file:
             motifs_list = list(motif_file)
             motif_file.seek(0)  # Reset to beginning for actual processing
             for motif in motifs_list:
@@ -132,7 +132,7 @@ def frobenius_norm(cov, cov2):
     """Compute Frobenius norm between two covariance matrices."""
     return np.sqrt(np.sum((cov - cov2)**2))
 
-def run_motif_cooccurrence_analysis(x_test_tensor, x_synthetic_tensor, output_dir="."):
+def run_motif_cooccurrence_analysis(x_test_tensor, x_synthetic_tensor, output_dir=".", motif_db_path='JASPAR2024_CORE_non-redundant_pfms_meme.txt'):
     """
     Run motif co-occurrence analysis.
     
@@ -143,6 +143,7 @@ def run_motif_cooccurrence_analysis(x_test_tensor, x_synthetic_tensor, output_di
         x_test_tensor: Test sequences tensor
         x_synthetic_tensor: Synthetic sequences tensor
         output_dir: Directory to save results
+        motif_db_path: Path to motif database file (default: JASPAR2024_CORE_non-redundant_pfms_meme.txt)
         
     Returns:
         dict: Results dictionary with motif co-occurrence statistics
@@ -163,9 +164,9 @@ def run_motif_cooccurrence_analysis(x_test_tensor, x_synthetic_tensor, output_di
     create_fasta_file(x_test_e, 'sub_test_seq.txt')
 
     print("Creating motif occurrence matrix for test sequences...")
-    test_motif_matrix = make_occurrence_matrix('sub_test_seq.txt')
+    test_motif_matrix = make_occurrence_matrix('sub_test_seq.txt', motif_db_path)
     print("Creating motif occurrence matrix for synthetic sequences...")
-    synthetic_motif_matrix = make_occurrence_matrix('sub_synthetic_seq.txt')
+    synthetic_motif_matrix = make_occurrence_matrix('sub_synthetic_seq.txt', motif_db_path)
 
     mm_1 = np.array(test_motif_matrix).T
     mm_2 = np.array(synthetic_motif_matrix).T
