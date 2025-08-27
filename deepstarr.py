@@ -1,6 +1,29 @@
+"""
+DeepSTARR Oracle Model for DeepSTARR Dataset
+
+This module contains the original DeepSTARR model architecture from
+de Almeida et al., 2022 (https://www.nature.com/articles/s41588-022-01048-5).
+
+This is the oracle model used for evaluation against D3 generated sequences.
+It predicts enhancer activity for both developmental and housekeeping promoters.
+"""
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.optim as optim
+import pytorch_lightning as pl
+import numpy as np
+import random
+import h5py
+import os
+from scipy import stats
+from pytorch_lightning import loggers as pl_loggers
+import tqdm
+from filelock import FileLock
+from typing import Any, Dict, Optional
+from sklearn.metrics import roc_auc_score, average_precision_score
+from pathlib import Path
 
 class DeepSTARR(nn.Module):
     """DeepSTARR model from de Almeida et al., 2022; 
@@ -146,89 +169,74 @@ class DeepSTARR(nn.Module):
         return y_pred
 
 
-#################
-
-
-from typing import Any
-from pytorch_lightning.utilities.types import EVAL_DATALOADERS
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import torch.optim as optim
-from sklearn.metrics import roc_auc_score, average_precision_score
-#import tqdm
-import numpy as np
-import random
-import h5py
-import os
-from scipy import stats
-
-import pytorch_lightning as pl
-#from lightning.pytorch import loggers as pl_loggers
-from pytorch_lightning import loggers as pl_loggers
-#import deepstarr_model 
-#import deepstarr_model_with_init 
-import tqdm
-#import torchsummary
+# =============================================================================
+# PyTorch Lightning Integration
+# =============================================================================
 
 def get_github_main_directory(reponame='DALdna'):
-    currdir=os.getcwd()
-    dir=''
+    """Get the main directory path for the given repository name."""
+    currdir = os.getcwd()
+    dir = ''
     for dirname in currdir.split('/'):
-        dir+=dirname+'/'
-        if dirname==reponame: break
+        dir += dirname + '/'
+        if dirname == reponame:
+            break
     return dir
 
-def key_with_low(key_list,low):
-    the_key=''
-    for key in key_list:
-        if key.lower()==low: the_key=key
-    return the_key
 
-from filelock import FileLock 
+def key_with_low(key_list, low):
+    """Find key in list that matches lowercase string."""
+    the_key = ''
+    for key in key_list:
+        if key.lower() == low:
+            the_key = key
+    return the_key 
 
 class PL_DeepSTARR(pl.LightningModule):
+    """PyTorch Lightning wrapper for DeepSTARR model.
+    
+    This class provides training, validation, and testing functionality
+    for the DeepSTARR oracle model used in D3 evaluations.
+    """
+    
     def __init__(self,
-                 batch_size=128, #original: 128, #20, #50, #100, #128,
-                 train_max_epochs=100, #my would-be-choice: 50,
-                 patience=10, #10, #100, #20, #patience=10,
-                 min_delta=0.001, #min_delta=0.001,
-                 input_h5_file='DeepSTARR_data.h5', #Originally created as: cp Orig_DeepSTARR_1dim.h5 DeepSTARRdev.h5
-                 lr=0.002, #most likely: 0.001, #0.002 From Paper
-                 initial_ds=True,
-
-                 weight_decay=1e-6, #1e-6, #1e-6, #0.0, #1e-6, #Stage0 # WEIGHT DECAY: L2 penalty: https://pytorch.org/docs/stable/generated/torch.optim.Adam.html
-                 min_lr=0.0, #default when not present (configure_optimizer in evoaug_analysis_utils_AC.py)                                                     #DSRR
-                 lr_patience=10, #1, #2 #,100, #10, #5
-                 decay_factor=0.1, #0.0 #0.1, #Stage0
-
-                 scale=0.005, # 0.001 or 0.005 according to Chandana
-
-                 initialization='kaiming_uniform', # original: 'kaiming_normal', #AC 
-                 initialize_dense=False, 
-                 ):
+                 batch_size: int = 128,
+                 train_max_epochs: int = 100,
+                 patience: int = 10,
+                 min_delta: float = 0.001,
+                 input_h5_file: str = '/grid/koo/home/yiyu/scratch/d3_evaluation_pipeline/DeepSTARR_data.h5',
+                 lr: float = 0.002,
+                 initial_ds: bool = True,
+                 weight_decay: float = 1e-6,
+                 min_lr: float = 0.0,
+                 lr_patience: int = 10,
+                 decay_factor: float = 0.1,
+                 scale: float = 0.005,
+                 initialization: str = 'kaiming_uniform',
+                 initialize_dense: bool = False):
         super().__init__()
-        self.scale=scale
-        self.model=DeepSTARR(output_dim=2) #, initialization=initialization, initialize_dense=initialize_dense) #.to(device) #goodold
-        self.name='DeepSTARR'
-        # self.task_type='single_task_regression'
-        self.metric_names=['PCC','Spearman']
-        self.initial_ds=initial_ds
-
-        self.batch_size=batch_size
-        self.train_max_epochs=train_max_epochs
-        self.patience=patience
-        self.lr=lr
-        self.min_delta=min_delta #for trainer, but accessible as an attribute if needed                                                     #DSRR
-        self.weight_decay=weight_decay
-
-        #""
-        self.min_lr=min_lr 
-        self.lr_patience=lr_patience 
-        self.decay_factor=decay_factor 
-        #""
-
-        self.input_h5_file=input_h5_file
+        self.save_hyperparameters()
+        
+        # Model configuration
+        self.scale = scale
+        self.model = DeepSTARR(output_dim=2)
+        self.name = 'DeepSTARR'
+        self.metric_names = ['PCC', 'Spearman']
+        self.initial_ds = initial_ds
+        
+        # Training configuration
+        self.batch_size = batch_size
+        self.train_max_epochs = train_max_epochs
+        self.patience = patience
+        self.lr = lr
+        self.min_delta = min_delta
+        self.weight_decay = weight_decay
+        self.min_lr = min_lr
+        self.lr_patience = lr_patience
+        self.decay_factor = decay_factor
+        
+        # Data configuration
+        self.input_h5_file = input_h5_file
         data = h5py.File(input_h5_file, 'r')
         if initial_ds:
             self.X_train = torch.tensor(np.array(data['X_train'])) #(402278, 4, 249)
@@ -249,240 +257,666 @@ class PL_DeepSTARR(pl.LightningModule):
             self.X_valid=data['X_valid']
             self.y_valid=data['Y_valid']
 
-    #""
-    def training_step(self, batch, batch_idx): #QUIQUIURG
-        self.model.train() 
-        inputs, labels = batch 
-        loss_fn = nn.MSELoss() #.to(device)
-        outputs=self.model(inputs)
-        loss = loss_fn(outputs, labels)                                                     #DSRR
-
-        self.log("train_loss", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)                                                     #DSRR
-
+    def training_step(self, batch, batch_idx):
+        """Training step for one batch."""
+        self.model.train()
+        inputs, labels = batch
+        loss_fn = nn.MSELoss()
+        outputs = self.model(inputs)
+        loss = loss_fn(outputs, labels)
+        
+        self.log("train_loss", loss, on_step=False, on_epoch=True, 
+                prog_bar=True, logger=True, sync_dist=True)
+        
         return loss
-    #""
         
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
-        scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=self.lr_patience, min_lr=self.min_lr, factor=self.decay_factor)                                                     #DSRR
-        #return optimizer
-        return {"optimizer": optimizer, "lr_scheduler": {"scheduler":scheduler, "monitor": "val_loss"}} 
+        """Configure optimizer and learning rate scheduler."""
+        optimizer = torch.optim.Adam(
+            self.parameters(), 
+            lr=self.lr, 
+            weight_decay=self.weight_decay
+        )
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, 
+            mode='min', 
+            patience=self.lr_patience, 
+            min_lr=self.min_lr, 
+            factor=self.decay_factor
+        )
+        return {
+            "optimizer": optimizer, 
+            "lr_scheduler": {
+                "scheduler": scheduler, 
+                "monitor": "val_loss"
+            }
+        } 
     
     
-    def validation_step(self, batch, batch_idx): 
+    def validation_step(self, batch, batch_idx):
+        """Validation step for one batch."""
         self.model.eval()
-        inputs, labels = batch 
-        loss_fn = nn.MSELoss() #.to(device)
-        outputs=self.model(inputs)
+        inputs, labels = batch
+        loss_fn = nn.MSELoss()
+        outputs = self.model(inputs)
         loss = loss_fn(outputs, labels)
-        self.log("val_loss", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True, sync_dist=True)                                                     #DSRR
-        out_cpu=outputs.detach().cpu()
-        lab_cpu=labels.detach().cpu()
-        pcc=torch.tensor(self.metrics(out_cpu, lab_cpu)['PCC'].mean())
-        self.log("val_pcc", pcc, on_step=False, on_epoch=True, prog_bar=True, logger=True)                                                     
-        #return loss
+        
+        self.log("val_loss", loss, on_step=False, on_epoch=True, 
+                prog_bar=True, logger=True, sync_dist=True)
+        
+        # Calculate and log PCC metric
+        out_cpu = outputs.detach().cpu()
+        lab_cpu = labels.detach().cpu()
+        pcc = torch.tensor(self.metrics(out_cpu, lab_cpu)['PCC'].mean())
+        self.log("val_pcc", pcc, on_step=False, on_epoch=True, 
+                prog_bar=True, logger=True)
 
-    def test_step(self, batch, batch_idx): 
+    def test_step(self, batch, batch_idx):
+        """Test step for one batch."""
         self.model.eval()
-        inputs, labels = batch 
-        loss_fn = nn.MSELoss() #.to(device)
-        outputs=self.model(inputs)
+        inputs, labels = batch
+        loss_fn = nn.MSELoss()
+        outputs = self.model(inputs)
         loss = loss_fn(outputs, labels)
-        self.log("test_loss", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)                                                     #DSRR
-        #return loss
+        
+        self.log("test_loss", loss, on_step=False, on_epoch=True, 
+                prog_bar=True, logger=True)
     
     def metrics(self, y_score, y_true):
-        vals = []
+        """Calculate Pearson and Spearman correlation metrics."""
+        # Spearman correlation
+        spearman_vals = []
         for output_index in range(y_score.shape[1]):
-            vals.append(stats.spearmanr(y_true[:,output_index], y_score[:,output_index])[0])                                                         #DSRR
-        spearmanr_vals=np.array(vals)
-        #
-        vals = []
+            spearman_vals.append(
+                stats.spearmanr(y_true[:, output_index], y_score[:, output_index])[0]
+            )
+        spearmanr_vals = np.array(spearman_vals)
+        
+        # Pearson correlation
+        pearson_vals = []
         for output_index in range(y_score.shape[-1]):
-            vals.append(stats.pearsonr(y_true[:,output_index], y_score[:,output_index])[0] )                                                         #DSRR
-        pearsonr_vals=np.array(vals)
-        metrics={'Spearman':spearmanr_vals,'PCC':pearsonr_vals}
-        return metrics
+            pearson_vals.append(
+                stats.pearsonr(y_true[:, output_index], y_score[:, output_index])[0]
+            )
+        pearsonr_vals = np.array(pearson_vals)
+        
+        return {'Spearman': spearmanr_vals, 'PCC': pearsonr_vals}
 
-    def forward(self, x):                                                     #DSRR
+    def forward(self, x):
+        """Forward pass through the model."""
         return self.model(x)
 
-    def predict_custom(self, X, keepgrad=False): 
+    def predict_custom(self, X, keepgrad=False, show_progress=False):
+        """Custom prediction function with batch processing."""
         self.model.eval()
-        dataloader=torch.utils.data.DataLoader(X, batch_size=self.batch_size, shuffle=False)                                                     #DSRR
-        preds=torch.empty(0)
-        if keepgrad: 
+        dataloader = torch.utils.data.DataLoader(
+            X, batch_size=self.batch_size, shuffle=False
+        )
+        preds = torch.empty(0)
+        
+        if keepgrad:
             preds = preds.to(self.device)
         else:
             preds = preds.cpu()
+        
+        for x in tqdm.tqdm(dataloader, total=len(dataloader), disable=not show_progress):
+            pred = self.model(x)
+            if not keepgrad:
+                pred = pred.detach().cpu()
+            preds = torch.cat((preds, pred), axis=0)
             
-        for x in tqdm.tqdm(dataloader, total=len(dataloader)):
-            pred=self.model(x)
-            if not keepgrad: pred=pred.detach().cpu()
-            preds=torch.cat((preds,pred),axis=0)
         return preds
 
-    def predict_custom_mcdropout(self, X,seed=41, keepgrad=False):
+    def predict_custom_mcdropout(self, X, seed=41, keepgrad=False):
+        """Prediction with Monte Carlo dropout for uncertainty estimation."""
         torch.manual_seed(seed)
         random.seed(seed)
-        np.random.seed(seed)                                                     #DSRR
+        np.random.seed(seed)
+        
         self.model.eval()
+        # Enable dropout during inference for MC dropout
         for m in self.model.modules():
-            if m.__class__.__name__.startswith('Dropout'): 
+            if m.__class__.__name__.startswith('Dropout'):
                 m.train()
-        #
-        dataloader=torch.utils.data.DataLoader(X, batch_size=self.batch_size, shuffle=False)
-        preds=torch.empty(0)
-        if keepgrad: 
+        
+        dataloader = torch.utils.data.DataLoader(
+            X, batch_size=self.batch_size, shuffle=False
+        )
+        preds = torch.empty(0)
+        
+        if keepgrad:
             preds = preds.to(self.device)
         else:
             preds = preds.cpu()
-
+        
         for x in tqdm.tqdm(dataloader, total=len(dataloader)):
-            pred=self.model(x)
-            if not keepgrad: pred=pred.detach().cpu()
-            preds=torch.cat((preds,pred),axis=0)
+            pred = self.model(x)
+            if not keepgrad:
+                pred = pred.detach().cpu()
+            preds = torch.cat((preds, pred), axis=0)
         
         return preds
 
 
+# =============================================================================
+# EvoAug Integration
+# =============================================================================
+
+def create_evoaug_augmentation_list():
+    """Create augmentation list with specified hyperparameters for DeepSTARR."""
+    try:
+        from evoaug import augment
+    except ImportError:
+        print("EvoAug not installed. Please install with: pip install evoaug")
+        return []
+    
+    augment_list = [
+        augment.RandomMutation(mutate_frac=0.05),
+        augment.RandomTranslocation(shift_min=0, shift_max=20),
+        augment.RandomInsertion(insert_min=0, insert_max=20),
+        augment.RandomDeletion(delete_min=0, delete_max=30),
+        # augment.RandomRC(rc_prob=0.0),  # Disabled as specified
+        augment.RandomNoise(noise_mean=0, noise_std=0.3),
+    ]
+    
+    return augment_list
 
 
+def load_evoaug_oracle_model(oracle_path: str, device: str = 'cuda') -> DeepSTARR:
+    """
+    Load EvoAug oracle model from checkpoint.
+    
+    Args:
+        oracle_path: Path to the oracle model checkpoint
+        device: Device to load model on
+        
+    Returns:
+        Loaded DeepSTARR model
+    """
+    try:
+        # Try loading as EvoAug checkpoint first
+        import evoaug
+        model = DeepSTARR(output_dim=2)
+        robust_model = evoaug.RobustModel(model, criterion=None, optimizer=None, augment_list=[])
+        robust_model = evoaug.load_model_from_checkpoint(robust_model, oracle_path)
+        oracle_model = robust_model.model.to(device)
+        oracle_model.eval()
+        print(f"✓ Loaded EvoAug oracle model from {oracle_path}")
+        return oracle_model
+        
+    except Exception as e:
+        print(f"Could not load as EvoAug checkpoint: {e}")
+        # Fallback to regular checkpoint loading
+        model = DeepSTARR(output_dim=2)
+        checkpoint = torch.load(oracle_path, map_location=device)
+        
+        if 'state_dict' in checkpoint:
+            model.load_state_dict(checkpoint['state_dict'], strict=False)
+        else:
+            model.load_state_dict(checkpoint, strict=False)
+        
+        model.to(device)
+        model.eval()
+        print(f"✓ Loaded oracle model from {oracle_path}")
+        return model
 
 
+def training_with_evoaug(chosen_model: str, chosen_dataset: str,
+                        use_evoaug: bool = True,
+                        max_epochs: int = 100,
+                        patience: int = 10,
+                        finetune_epochs: int = 10,
+                        finetune: bool = True,
+                        verbose: bool = False, 
+                        wanted_wandb: bool = False,
+                        seed: int = 42) -> Dict[str, np.ndarray]:
+    """Train DeepSTARR model with EvoAug augmentations.
+    
+    Args:
+        chosen_model: Name of the model ('DeepSTARR')
+        chosen_dataset: Name of the dataset ('DeepSTARR_data')
+        use_evoaug: Whether to use EvoAug augmentations
+        max_epochs: Maximum training epochs
+        patience: Early stopping patience
+        finetune_epochs: Fine-tuning epochs
+        finetune: Whether to fine-tune after training
+        verbose: Whether to print verbose output
+        wanted_wandb: Whether to use Weights & Biases logging
+        seed: Random seed
+        
+    Returns:
+        Dictionary containing evaluation metrics
+    """
+    
+    # Import required libraries
+    try:
+        import evoaug
+        from evoaug_analysis import utils
+    except ImportError as e:
+        print(f"EvoAug not installed. Please install with: pip install evoaug evoaug_analysis")
+        raise e
+    
+    # Set random seeds for reproducibility
+    torch.manual_seed(seed)
+    random.seed(seed)
+    np.random.seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
 
-###########################################
+    print(f"Training DeepSTARR with {'EvoAug' if use_evoaug else 'standard'} augmentations...")
+    
+    # Setup data module
+    data_path = f'./{chosen_dataset}.h5'
+    batch_size = 100  # Following the example
+    data_module = utils.H5DataModule(data_path, batch_size=batch_size, lower_case=False, transpose=False)
+    
+    # Create model
+    model = DeepSTARR(output_dim=2, d=256)
+    
+    # Setup loss and optimizer
+    loss = nn.MSELoss()
+    optimizer_dict = utils.configure_optimizer(
+        model,
+        lr=0.001,
+        weight_decay=1e-6,
+        decay_factor=0.1,
+        patience=5,
+        monitor='val_loss'
+    )
+    
+    # Create augmentation list
+    augment_list = create_evoaug_augmentation_list() if use_evoaug else []
+    
+    # Create robust model
+    robust_model = evoaug.RobustModel(
+        model,
+        criterion=loss,
+        optimizer=optimizer_dict,
+        augment_list=augment_list,
+        max_augs_per_seq=2,  # As specified for DeepSTARR
+        hard_aug=True,
+        finetune=False,
+        inference_aug=False
+    )
+    
+    # Setup trainer
+    from datetime import datetime
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    aug_suffix = "_evoaug" if use_evoaug else "_standard"
+    work_dir = f"experiments/deepstarr{aug_suffix}/{timestamp}"
+    os.makedirs(work_dir, exist_ok=True)
+    
+    ckpt_path = os.path.join(work_dir, f"deepstarr{aug_suffix}")
+    callback_topmodel = pl.callbacks.ModelCheckpoint(
+        monitor='val_loss',
+        save_top_k=1,
+        dirpath=work_dir,
+        filename=os.path.basename(ckpt_path)
+    )
+    
+    callback_es = pl.callbacks.early_stopping.EarlyStopping(
+        monitor='val_loss', 
+        patience=patience
+    )
+    
+    trainer = pl.Trainer(
+        max_epochs=max_epochs,
+        logger=None,
+        callbacks=[callback_es, callback_topmodel],
+        accelerator='gpu' if torch.cuda.is_available() else 'cpu',
+        devices=1
+    )
+    
+    # Train model
+    print("Starting training...")
+    trainer.fit(robust_model, datamodule=data_module)
+    
+    # Load best model
+    ckpt_file = ckpt_path + ".ckpt"
+    if os.path.exists(ckpt_file):
+        robust_model = evoaug.load_model_from_checkpoint(robust_model, ckpt_file)
+        print(f"✓ Loaded best model from {ckpt_file}")
+    
+    # Fine-tune if requested
+    if finetune and use_evoaug:
+        print("Starting fine-tuning phase...")
+        
+        # Setup fine-tune optimizer
+        finetune_optimizer = torch.optim.Adam(
+            filter(lambda p: p.requires_grad, model.parameters()),
+            lr=0.0001,
+            weight_decay=1e-6
+        )
+        
+        # Switch to fine-tune mode
+        robust_model.finetune_mode(optimizer=finetune_optimizer)
+        
+        # Setup trainer for fine-tuning
+        ckpt_finetune_path = os.path.join(work_dir, "deepstarr_finetune")
+        callback_topmodel = pl.callbacks.ModelCheckpoint(
+            monitor='val_loss',
+            save_top_k=1,
+            dirpath=work_dir,
+            filename=os.path.basename(ckpt_finetune_path)
+        )
+        
+        trainer = pl.Trainer(
+            max_epochs=finetune_epochs,
+            logger=None,
+            callbacks=[callback_topmodel],
+            accelerator='gpu' if torch.cuda.is_available() else 'cpu',
+            devices=1
+        )
+        
+        # Fine-tune
+        trainer.fit(robust_model, datamodule=data_module)
+        
+        # Load best fine-tuned model
+        finetune_ckpt = ckpt_finetune_path + ".ckpt"
+        if os.path.exists(finetune_ckpt):
+            robust_model = evoaug.load_model_from_checkpoint(robust_model, finetune_ckpt)
+            print(f"✓ Loaded best fine-tuned model from {finetune_ckpt}")
+    
+    # Evaluate model
+    print("Evaluating model...")
+    pred = utils.get_predictions(robust_model, data_module.x_test, batch_size=100)
+    results = utils.evaluate_model(data_module.y_test, pred, task='regression')
+    
+    # Calculate correlations
+    y_true = data_module.y_test
+    y_score = pred
+    
+    print('\nPearson r:')
+    pearson_vals = []
+    for class_index in range(y_true.shape[-1]):
+        r = stats.pearsonr(y_true[:, class_index], y_score[:, class_index])[0]
+        pearson_vals.append(r)
+    print(np.array(pearson_vals))
+    
+    print('\nSpearman rho:')
+    spearman_vals = []
+    for class_index in range(y_true.shape[-1]):
+        rho = stats.spearmanr(y_true[:, class_index], y_score[:, class_index])[0]
+        spearman_vals.append(rho)
+    print(np.array(spearman_vals))
+    
+    # Save results
+    results_dict = {
+        'Spearman': spearman_vals,
+        'PCC': pearson_vals,
+        'full_results': results
+    }
+    
+    results_path = os.path.join(work_dir, 'evaluation_results.pt')
+    torch.save(results_dict, results_path)
+    print(f"✓ Saved evaluation results to {results_path}")
+    print(f"✓ Training completed. Results saved to: {work_dir}")
+    
+    return results_dict
 
 
-def training_with_PL(chosen_model, chosen_dataset,
-                     initial_test=False, mcdropout_test=False, verbose=False, wanted_wandb=False):
+# =============================================================================
+# Training Functions
+# =============================================================================
 
+
+def training_with_PL(chosen_model: str, chosen_dataset: str,
+                     initial_test: bool = False, 
+                     mcdropout_test: bool = False, 
+                     verbose: bool = False, 
+                     wanted_wandb: bool = False,
+                     seed: int = 41) -> Dict[str, np.ndarray]:
+    """Train DeepSTARR model using PyTorch Lightning.
+    
+    Args:
+        chosen_model: Name of the model ('DeepSTARR')
+        chosen_dataset: Name of the dataset ('DeepSTARR_data')
+        initial_test: Whether to test before training
+        mcdropout_test: Whether to test with Monte Carlo dropout
+        verbose: Whether to print verbose output
+        wanted_wandb: Whether to use Weights & Biases logging
+        
+    Returns:
+        Dictionary containing evaluation metrics
+    """
+
+    # Set random seeds for reproducibility
+    torch.manual_seed(seed)
+    random.seed(seed)
+    np.random.seed(seed)
+
+    # Setup logging
     if wanted_wandb:
         import wandb
-        from pytorch_lightning.loggers import WandbLogger # https://docs.wandb.ai/guides/integrations/lightning
+        from pytorch_lightning.loggers import WandbLogger
         wandb_logger = WandbLogger(log_model="all")
-
-        
+    
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"{device=} {torch.cuda.is_available()=}")
-
-    currdir=os.popen('pwd').read().replace("\n","") #os.getcwd()
-    outdir="../outputs/" #../../outputs_DALdna/"
-    log_dir=outdir+"lightning_logs_"+chosen_model+"/"
+    
+    # Setup directories and logging
+    currdir = os.popen('pwd').read().replace("\n", "")
+    outdir = "../outputs/"
+    log_dir = outdir + "lightning_logs_" + chosen_model + "/"
     tb_logger = pl_loggers.TensorBoardLogger(save_dir=log_dir)
 
-    if wanted_wandb:
-        logger_of_choice=wandb_logger
-    else:
-        logger_of_choice=tb_logger
+    logger_of_choice = wandb_logger if wanted_wandb else tb_logger
+    
+    # Initialize model
+    model = eval(f"PL_{chosen_model}(input_h5_file='./{chosen_dataset}.h5', initial_ds=True)")
 
-    #model=eval("PL_"+chosen_model+"(input_h5_file='../inputs/"+chosen_dataset+".h5', initial_ds=True)") #PERFECT OLD
-    model=eval("PL_"+chosen_model+"(input_h5_file='./"+chosen_dataset+".h5', initial_ds=True)") #PERFECT OLD
+    # Setup data loaders
+    if verbose:
+        os.system('date')
+        print(f"Training data shape: {model.X_train.shape}")
+        print(f"Training labels shape: {model.y_train.shape}")
+    
+    train_dataloader = torch.utils.data.DataLoader(
+        list(zip(model.X_train, model.y_train)), 
+        batch_size=model.batch_size, 
+        shuffle=True
+    )
+    valid_dataloader = torch.utils.data.DataLoader(
+        list(zip(model.X_valid, model.y_valid)), 
+        batch_size=model.batch_size, 
+        shuffle=False
+    )
+    test_dataloader = torch.utils.data.DataLoader(
+        list(zip(model.X_test, model.y_test)), 
+        batch_size=model.batch_size, 
+        shuffle=False
+    )
 
-    os.system('date')
-    print (model.X_train.shape)
-    print (model.y_train.shape)
-    train_dataloader=torch.utils.data.DataLoader(list(zip(model.X_train,model.y_train)), batch_size=model.batch_size, shuffle=True)
-    os.system('date')
-    valid_dataloader=torch.utils.data.DataLoader(list(zip(model.X_valid,model.y_valid)), batch_size=model.batch_size, shuffle=False) #True)
-    os.system('date')
-    test_dataloader=torch.utils.data.DataLoader(list(zip(model.X_test,model.y_test)), batch_size=model.batch_size, shuffle=False) #True)
-    os.system('date')
-
-    ckptfile="oracle_"+model.name+"_"+chosen_dataset #+".ckpt"
-    to_monitor='val_loss' 
-    callback_ckpt = pl.callbacks.ModelCheckpoint( # https://lightning.ai/docs/pytorch/stable/api/lightning.pytorch.callbacks.ModelCheckpoint.html
-        #gpus=1,
-        #auto_select_gpus=True,
-        monitor=to_monitor, #default is None which saves a checkpoint only for the last epoch.
+    # Setup callbacks
+    ckptfile = f"oracle_{model.name}_{chosen_dataset}"
+    to_monitor = 'val_loss'
+    
+    callback_ckpt = pl.callbacks.ModelCheckpoint(
+        monitor=to_monitor,
         mode='min',
         save_top_k=1,
         save_weights_only=True,
-        dirpath="./", #"../inputs/", #get_github_main_directory(reponame='DALdna')+"inputs/", 
-        filename=ckptfile, #comment out to verify that a different epoch is picked in the name.
+        dirpath="./",
+        filename=ckptfile,
     )
-    early_stop_callback = pl.callbacks.EarlyStopping(
-                            #monitor='val_loss',
-                            monitor=to_monitor,
-                            min_delta=model.min_delta, #https://lightning.ai/docs/pytorch/stable/api/lightning.pytorch.callbacks.EarlyStopping.html
-                            patience=model.patience,
-                            verbose=False,
-                            mode='min'
-                            )
-
-    if initial_test:
-        print('predict_custom')
-        y_score=model.predict_custom(model.X_test)
-        print('y_score.shape: ',y_score.shape)
-        metrics_pretrain=model.metrics(y_score, model.y_test)
-        print(f"{metrics_pretrain=}")
-        print(f"{model(model.X_test[0:10])=}")
     
+    early_stop_callback = pl.callbacks.EarlyStopping(
+        monitor=to_monitor,
+        min_delta=model.min_delta,
+        patience=model.patience,
+        verbose=False,
+        mode='min'
+    )
+
+    # Initial testing before training
+    if initial_test:
+        print('Running initial test...')
+        y_score = model.predict_custom(model.X_test)
+        print(f'y_score.shape: {y_score.shape}')
+        metrics_pretrain = model.metrics(y_score, model.y_test)
+        print(f"Pre-training metrics: {metrics_pretrain}")
+        print(f"Sample predictions: {model(model.X_test[0:10])}")
+    
+    # Monte Carlo dropout testing
     if mcdropout_test:
+        print('Running Monte Carlo dropout test...')
         n_mc = 5
-        preds_mc=torch.zeros((n_mc,len(model.X_test)))
+        preds_mc = torch.zeros((n_mc, len(model.X_test)))
         for i in range(n_mc):
-            preds_mc[i] = model.predict_custom_mcdropout(model.X_test,
-                                                            seed=41+i).squeeze(axis=1).unsqueeze(axis=0)
-        print('predict_custom_mcdropout')
-        print('y_score.shape: ',preds_mc.shape)
-        metrics_pretrain=model.metrics(y_score, model.y_test)
-        print(f"{metrics_pretrain=}")
-        print(f"{model(model.X_test[0:10])=}")
+            preds_mc[i] = model.predict_custom_mcdropout(
+                model.X_test, seed=41+i
+            ).squeeze(axis=1).unsqueeze(axis=0)
+        print(f'MC dropout predictions shape: {preds_mc.shape}')
+        metrics_pretrain = model.metrics(y_score, model.y_test)
+        print(f"MC dropout metrics: {metrics_pretrain}")
+        print(f"Sample MC predictions: {model(model.X_test[0:10])}")
 
-    print(f"{model.device=}")
-    trainer = pl.Trainer(accelerator='cuda', devices=-1, max_epochs=model.train_max_epochs, logger=logger_of_choice, callbacks=[callback_ckpt,early_stop_callback],deterministic=True) 
-    trainer.fit(model, train_dataloaders=train_dataloader, val_dataloaders=valid_dataloader) #GOODOLD
-    #os.system('mv ../inputs/'+ckptfile+'-v1.ckpt ../inputs/'+ckptfile+'.ckpt')
-    os.system('mv ./'+ckptfile+'-v1.ckpt ./'+ckptfile+'.ckpt')
-    if verbose: os.system('date')
-    y_score=model.predict_custom(model.X_test)
-    if verbose: os.system('date')
-    metrics=model.metrics(y_score, model.y_test)
-    print(metrics)
+    # Training
+    print(f"Model device: {model.device}")
+    trainer = pl.Trainer(
+        accelerator='cuda', 
+        devices=-1, 
+        max_epochs=model.train_max_epochs, 
+        logger=logger_of_choice, 
+        callbacks=[callback_ckpt, early_stop_callback],
+        deterministic=True
+    )
+    
+    trainer.fit(model, train_dataloaders=train_dataloader, val_dataloaders=valid_dataloader)
+    
+    # Rename checkpoint file
+    os.system(f'mv ./{ckptfile}-v1.ckpt ./{ckptfile}.ckpt')
+    
+    # Final evaluation
+    if verbose:
+        os.system('date')
+    y_score = model.predict_custom(model.X_test)
+    if verbose:
+        os.system('date')
+    metrics = model.metrics(y_score, model.y_test)
+    print(f"Final metrics: {metrics}")
 
-    """
+    # Log to wandb if enabled
     if wanted_wandb:
+        import wandb
         wandb.log(metrics)
-    """
-
-    print(ckptfile)
+    
+    print(f"Model checkpoint saved as: {ckptfile}")
     return metrics
 
 
 
 
-##############################################################
+# =============================================================================
+# Main Execution
+# =============================================================================
 
 
-
-
-
-if __name__=='__main__':
-
-    pairlist=[
-              ['DeepSTARR', 'DeepSTARR_data'],
-
-    ] 
-
-    for pair in pairlist:
-                
-        chosen_model=pair[0]
-        chosen_dataset=pair[1]
-
-        #device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-        overall_seed=41
-        myseed=overall_seed
-        torch.manual_seed(myseed)
-        random.seed(myseed)
-        np.random.seed(myseed)
-
+if __name__ == '__main__':
+    """Main execution for DeepSTARR oracle model inference."""
+    
+    # Configuration
+    chosen_model = 'DeepSTARR'
+    chosen_dataset = 'DeepSTARR_data'
+    data_path = f'./{chosen_dataset}.h5'
+    checkpoint_path = 'oracle_DeepSTARR_DeepSTARR_data.ckpt'
+    
+    print("DeepSTARR Oracle Model Inference")
+    print("=" * 40)
+    print("Configuration:")
+    print(f"  Model: {chosen_model}")
+    print(f"  Dataset: {chosen_dataset}")
+    print(f"  Data path: {data_path}")
+    print(f"  Checkpoint: {checkpoint_path}")
+    
+    # Check if data file exists
+    if Path(data_path).exists():
+        print(f"\nData file found: {data_path}")
+        
+        # Suppress Lightning logs
         import logging
         logging.getLogger("pytorch_lightning").setLevel(logging.ERROR)
-
-        #metrics=training_with_PL(chosen_model, chosen_dataset, initial_test=False, mcdropout_test=False, verbose=False, wanted_wandb=True)
-        metrics=training_with_PL(chosen_model, chosen_dataset, initial_test=True, mcdropout_test=False, verbose=False, wanted_wandb=False)
-
-        print("SCRIPT END")
-        print("WARNING: should I do a deep ensemble, and then take the ckpt of the best model?")
+        
+        # Check if checkpoint exists
+        if Path(checkpoint_path).exists():
+            print(f"Checkpoint found: {checkpoint_path}")
+            
+            # Load pre-trained model
+            try:
+                model = PL_DeepSTARR(input_h5_file=data_path, initial_ds=True)
+                checkpoint = torch.load(checkpoint_path, map_location='cpu')
+                model.load_state_dict(checkpoint['state_dict'], strict=False)
+                model.eval()
+                print("✓ Loaded pre-trained model from checkpoint")
+                
+                # Get test data
+                print(f"\nTest data shape: {model.X_test.shape}")
+                print(f"Test labels shape: {model.y_test.shape}")
+                
+                # Make predictions
+                print("Making predictions...")
+                device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+                model = model.to(device)
+                
+                # Move test data to the same device as the model
+                X_test_device = model.X_test.to(device)
+                
+                y_score = model.predict_custom(X_test_device)
+                y_true = model.y_test
+                
+                print(f"Predictions shape: {y_score.shape}")
+                print(f"Targets shape: {y_true.shape}")
+                
+                # Calculate metrics using the model's built-in metrics function
+                metrics_dict = model.metrics(y_score.cpu(), y_true.cpu())
+                
+                # Extract correlations
+                pearson_vals = metrics_dict['PCC'] 
+                spearman_vals = metrics_dict['Spearman']
+                
+                print(f"\n" + "="*50)
+                print("INFERENCE RESULTS")
+                print("="*50)
+                print(f"Pearson correlations: {pearson_vals}")
+                print(f"Mean Pearson r: {pearson_vals.mean():.4f}")
+                print(f"Spearman correlations: {spearman_vals}")
+                print(f"Mean Spearman rho: {spearman_vals.mean():.4f}")
+                
+                # Print individual task correlations
+                task_names = ['Developmental', 'Housekeeping']
+                print(f"\nPer-task correlations:")
+                for i, task in enumerate(task_names):
+                    print(f"  {task}:")
+                    print(f"    Pearson r: {pearson_vals[i]:.4f}")
+                    print(f"    Spearman rho: {spearman_vals[i]:.4f}")
+                print("="*50)
+                
+            except Exception as e:
+                print(f"Error loading model or making predictions: {e}")
+                print("\nTo train a model first, uncomment the training section below:")
+                print("# metrics = training_with_PL(chosen_model, chosen_dataset)")
+        else:
+            print(f"\nCheckpoint not found: {checkpoint_path}")
+            print("Training a new model...")
+            
+            # Commented out training - uncomment to train
+            # metrics = training_with_PL(
+            #     chosen_model, 
+            #     chosen_dataset, 
+            #     initial_test=True, 
+            #     mcdropout_test=False, 
+            #     verbose=True, 
+            #     wanted_wandb=False
+            # )
+            # print(f"Training completed. Final metrics: {metrics}")
+            
+            print("Training is commented out. To train:")
+            print("1. Uncomment the training_with_PL call above")
+            print("2. Run the script to generate the checkpoint")
+            print("3. Re-run for inference")
+    else:
+        print(f"\nData file not found: {data_path}")
+        print("\nTo use this script:")
+        print("1. Ensure DeepSTARR_data.h5 is in the current directory")
+        print("2. Either train a model first or provide a pre-trained checkpoint")
+        print("3. Run inference to get Pearson and Spearman correlations")

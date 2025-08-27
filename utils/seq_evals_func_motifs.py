@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+from tqdm import tqdm
 # following are new to seq_evals_improved.py
 from memelite.fimo import fimo as memelite_fimo
 from memelite.io import read_meme
@@ -43,7 +44,7 @@ def make_occurrence_matrix_memelite(meme_file_path, onehot_seqs):
     motif_names = list(motifs.keys())
     hits_by_seq = memelite_fimo(meme_file_path, onehot_seqs, dim=1) # output is list of data frames for each sequence
     occurrence_matrix = np.zeros((onehot_seqs.shape[0], len(motif_names))) # sequences in rows, motifs in columns
-    for i in range(onehot_seqs.shape[0]):
+    for i in tqdm(range(onehot_seqs.shape[0]), desc="Processing sequences for motif occurrence"):
         i_hits_df = hits_by_seq[i]
         # skip the sequence if it has no motif matched
         if not i_hits_df.empty:

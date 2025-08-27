@@ -4,30 +4,48 @@ from datetime import datetime
 import pickle
 from tqdm import tqdm
 
-def calculate_cross_sequence_identity_batch(X_train, X_test, batch_size):
-    """Calculate cross-sequence identity using batched dot products."""
-    num_train, seq_length, alphabet_size = X_train.shape    
-    num_test = X_test.shape[0]
+def calculate_cross_sequence_identity_batch(X_source, X_target, batch_size=256):
+    """Calculate percent identity using normalized Hamming distance.
+    
+    Percent identity: PID(xgen,i, xreal) = 1 − dH(xgen,i, xreal) / L
+    where dH is Hamming distance and L is sequence length.
+    
+    Args:
+        X_source: Source sequences with shape (num_source, 4, seq_length)
+        X_target: Target sequences with shape (num_target, 4, seq_length)
+        batch_size: Batch size for processing
+        
+    Returns:
+        Percent identity matrix with shape (num_source, num_target)
+        Values range from 0.0 (no similarity) to 1.0 (identical)
+    """
+    num_source, alphabet_size, seq_length = X_source.shape    
+    num_target = X_target.shape[0]
+    L = seq_length  # Actual sequence length for normalization (249)
     
     # Reshape the matrices for dot product computation
-    X_train = np.reshape(X_train, [-1, seq_length * alphabet_size])
-    X_test = np.reshape(X_test, [-1, seq_length * alphabet_size])
+    X_source_flat = np.reshape(X_source, [-1, alphabet_size * seq_length])
+    X_target_flat = np.reshape(X_target, [-1, alphabet_size * seq_length])
     
-    # Initialize the matrix to store the results
-    seq_identity = np.zeros((num_train, num_test)).astype(np.int8)
+    # Initialize the matrix to store percent identity results
+    percent_identity = np.zeros((num_source, num_target), dtype=np.float32)
     
-    # Process the training data in batches
-    total_batches = (num_train + batch_size - 1) // batch_size
-    for start_idx in tqdm(range(0, num_train, batch_size), desc="Computing sequence identity", total=total_batches):
-        end_idx = min(start_idx + batch_size, num_train)
+    # Process the source data in batches
+    total_batches = (num_source + batch_size - 1) // batch_size
+    for start_idx in tqdm(range(0, num_source, batch_size), desc="Computing percent identity", total=total_batches):
+        end_idx = min(start_idx + batch_size, num_source)
         
-        # Compute the dot product for this batch
-        batch_result = np.dot(X_train[start_idx:end_idx], X_test.T) 
+        # Compute dot product (number of matching positions)
+        matching_positions = np.dot(X_source_flat[start_idx:end_idx], X_target_flat.T)
+        
+        # Convert to percent identity by normalizing with sequence length L
+        # PID = matching_positions / L (equivalent to 1 - dH/L)
+        batch_pid = matching_positions.astype(np.float32) / L
         
         # Store the result in the corresponding slice of the output matrix
-        seq_identity[start_idx:end_idx, :] = batch_result.astype(np.int8)
+        percent_identity[start_idx:end_idx, :] = batch_pid
     
-    return seq_identity
+    return percent_identity
 
 def run_percent_identity_analysis(x_synthetic_tensor, x_train_tensor, output_dir="."):
     """

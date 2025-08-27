@@ -124,7 +124,7 @@ class kmer_featurization:
 
         return numbering
 
-def run_kmer_spectrum_shift_analysis(x_test_tensor, x_synthetic_tensor, kmer_length=3, output_dir="."):
+def run_kmer_spectrum_shift_analysis(x_test_tensor, x_synthetic_tensor, kmer_length=6, output_dir="."):
     """
     Run k-mer spectrum shift analysis.
     

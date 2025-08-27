@@ -211,3 +211,7 @@ results/
 JASPAR2024_CORE_non-redundant_pfms_meme.txt
 *.ckpt
 *.npz
+sub_synthetic_seq.txt
+sub_test_seq.txt
+
+notebooks/

@@ -41,40 +41,113 @@ def prep_data_for_classification(x_test_tensor, x_synthetic_tensor):
     return data_dict
 
 
-class BinaryDeepSTARR(nn.Module):
-    """
-    Binary classification version of DeepSTARR for discriminability analysis.
+# class BinaryDeepSTARR(nn.Module):
+#     """
+#     Binary classification version of DeepSTARR for discriminability analysis.
     
-    Uses the same CNN architecture as DeepSTARR but with a single output neuron
-    for binary classification (real vs synthetic sequences).
-    """
+#     Uses the same CNN architecture as DeepSTARR but with a single output neuron
+#     for binary classification (real vs synthetic sequences).
+#     """
     
-    def __init__(self, d=256,
-                 conv1_filters=None, learn_conv1_filters=True,
-                 conv2_filters=None, learn_conv2_filters=True,
-                 conv3_filters=None, learn_conv3_filters=True,
-                 conv4_filters=None, learn_conv4_filters=True):
+#     def __init__(self, d=256,
+#                  conv1_filters=None, learn_conv1_filters=True,
+#                  conv2_filters=None, learn_conv2_filters=True,
+#                  conv3_filters=None, learn_conv3_filters=True,
+#                  conv4_filters=None, learn_conv4_filters=True):
+#         super().__init__()
+        
+#         # Use the base DeepSTARR architecture with single output
+#         self.deepstarr = DeepSTARR(
+#             output_dim=1,  # Single output for binary classification
+#             d=d,
+#             conv1_filters=conv1_filters,
+#             learn_conv1_filters=learn_conv1_filters,
+#             conv2_filters=conv2_filters,
+#             learn_conv2_filters=learn_conv2_filters,
+#             conv3_filters=conv3_filters,
+#             learn_conv3_filters=learn_conv3_filters,
+#             conv4_filters=conv4_filters,
+#             learn_conv4_filters=learn_conv4_filters
+#         )
+        
+#     def forward(self, x):
+#         # Get output from DeepSTARR and apply sigmoid for binary classification
+#         logits = self.deepstarr(x)
+#         return logits  # Return logits (use BCEWithLogitsLoss for numerical stability)
+
+class CNN(nn.Module):
+    def __init__(self, output_dim):
         super().__init__()
         
-        # Use the base DeepSTARR architecture with single output
-        self.deepstarr = DeepSTARR(
-            output_dim=1,  # Single output for binary classification
-            d=d,
-            conv1_filters=conv1_filters,
-            learn_conv1_filters=learn_conv1_filters,
-            conv2_filters=conv2_filters,
-            learn_conv2_filters=learn_conv2_filters,
-            conv3_filters=conv3_filters,
-            learn_conv3_filters=learn_conv3_filters,
-            conv4_filters=conv4_filters,
-            learn_conv4_filters=learn_conv4_filters
-        )
-        
-    def forward(self, x):
-        # Get output from DeepSTARR and apply sigmoid for binary classification
-        logits = self.deepstarr(x)
-        return logits  # Return logits (use BCEWithLogitsLoss for numerical stability)
+        self.activation1 = nn.ReLU()
+        self.activation = nn.ReLU()
+        self.dropout1 = nn.Dropout(0.2)
+        self.dropout2 = nn.Dropout(0.2)
+        self.dropout3 = nn.Dropout(0.2)
+        self.dropout4 = nn.Dropout(0.5)
+        self.flatten = nn.Flatten()
+        self.output_activation = nn.Sigmoid()
 
+        # Layer 1 (convolutional), constituent parts
+        self.conv1_filters = torch.nn.Parameter(torch.zeros(64, 4, 7))
+        torch.nn.init.kaiming_uniform_(self.conv1_filters)
+        self.batchnorm1 = nn.BatchNorm1d(64)
+        self.maxpool1 = nn.MaxPool1d(4)
+        
+        # Layer 3 (convolutional), constituent parts
+        self.conv2_filters = torch.nn.Parameter(torch.zeros(96, 64, 5))
+        torch.nn.init.kaiming_uniform_(self.conv2_filters)
+        self.batchnorm2 = nn.BatchNorm1d(96)
+        self.maxpool2 = nn.MaxPool1d(4)
+        
+        # Layer 4 (convolutional), constituent parts
+        self.conv3_filters = torch.nn.Parameter(torch.zeros(128, 96, 5))
+        torch.nn.init.kaiming_uniform_(self.conv3_filters)
+        self.batchnorm3 = nn.BatchNorm1d(128)
+        self.maxpool3 = nn.MaxPool1d(2)
+        
+        # Layer 5 (fully connected), constituent parts
+        self.fc4 = nn.LazyLinear(256, bias=True)
+        self.batchnorm4 = nn.BatchNorm1d(256)
+        
+        # Output layer (fully connected), constituent parts
+        self.fc5 = nn.LazyLinear(output_dim, bias=True)
+    
+    def forward(self, x):
+        # Layer 1
+        # Layer 2
+        cnn = torch.conv1d(x, self.conv1_filters, stride=1, padding="same")
+        cnn = self.batchnorm1(cnn)
+        cnn = self.activation1(cnn)
+        cnn = self.maxpool1(cnn)
+        cnn = self.dropout1(cnn)
+        
+        # Layer 3
+        cnn = torch.conv1d(cnn, self.conv2_filters, stride=1, padding="same")
+        cnn = self.batchnorm2(cnn)
+        cnn = self.activation(cnn)
+        cnn = self.maxpool2(cnn)
+        cnn = self.dropout2(cnn)
+        
+        # Layer 4
+        cnn = torch.conv1d(cnn, self.conv3_filters, stride=1, padding="same")
+        cnn = self.batchnorm3(cnn)
+        cnn = self.activation(cnn)
+        cnn = self.maxpool3(cnn)
+        cnn = self.dropout3(cnn)
+        
+        # Layer 5
+        cnn = self.flatten(cnn)
+        cnn = self.fc4(cnn)
+        cnn = self.batchnorm4(cnn)
+        cnn = self.activation(cnn)
+        cnn = self.dropout4(cnn)
+        
+        # Output layer
+        logits = self.fc5(cnn) 
+        y_pred = self.output_activation(logits)
+        
+        return y_pred
 
 class PL_BinaryDeepSTARR(pl.LightningModule):
     """
@@ -109,8 +182,10 @@ class PL_BinaryDeepSTARR(pl.LightningModule):
         self.input_h5_file = input_h5_file
         
         # Initialize binary classifier
-        self.model = BinaryDeepSTARR(output_dim=1)
-        self.name = 'BinaryDeepSTARR'
+        # self.model = BinaryDeepSTARR(output_dim=1)
+        self.model = CNN(output_dim=1)
+        # self.name = 'BinaryDeepSTARR'
+        self.name = 'CNN'
         
         # Load data
         self._load_data()
@@ -124,7 +199,7 @@ class PL_BinaryDeepSTARR(pl.LightningModule):
                 y_train = np.array(data['y_train'])  # Shape: (N, 1)
                 
                 # Convert to tensors
-                self.X_train = torch.tensor(x_train, dtype=torch.float32)
+                self.X_train = torch.tensor(x_train, dtype=torch.float32).permute(0, 2, 1)
                 self.y_train = torch.tensor(y_train, dtype=torch.float32)
                 
                 # Create train/validation split (80/20)
