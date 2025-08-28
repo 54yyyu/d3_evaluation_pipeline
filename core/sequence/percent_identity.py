@@ -4,7 +4,7 @@ from datetime import datetime
 import pickle
 from tqdm import tqdm
 
-def calculate_cross_sequence_identity_batch(X_source, X_target, batch_size=256):
+def calculate_sequence_identity_batch(X_source, X_target, batch_size=256):
     """Calculate percent identity using normalized Hamming distance.
     
     Percent identity: PID(xgen,i, xreal) = 1 − dH(xgen,i, xreal) / L
@@ -64,16 +64,17 @@ def run_percent_identity_analysis(x_synthetic_tensor, x_train_tensor, output_dir
     """
     
     current_date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    print("✓ Sequence identity function defined")
     
     print("Computing sequence identity (synthetic vs synthetic)...")
     x_synthetic_tensor2 = x_synthetic_tensor
-    percent_identity_1 = calculate_cross_sequence_identity_batch(x_synthetic_tensor, x_synthetic_tensor2, batch_size=256)
+    percent_identity_1 = calculate_sequence_identity_batch(x_synthetic_tensor, x_synthetic_tensor2, batch_size=256)
     max_percent_identity_1 = np.max(percent_identity_1, axis=1)
     average_max_percent_identity_1 = np.mean(max_percent_identity_1)
     global_max_percent_identity_1 = np.max(max_percent_identity_1)
 
     print("Computing sequence identity (synthetic vs training)...")
-    percent_identity_2 = calculate_cross_sequence_identity_batch(x_synthetic_tensor, x_train_tensor, batch_size=2000)
+    percent_identity_2 = calculate_sequence_identity_batch(x_synthetic_tensor, x_train_tensor, batch_size=2000)
     max_percent_identity_2 = np.max(percent_identity_2, axis=1)
     average_max_percent_identity_2 = np.mean(max_percent_identity_2) 
     global_max_percent_identity_2 = np.max(max_percent_identity_2)

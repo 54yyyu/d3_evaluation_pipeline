@@ -4,20 +4,13 @@ from datetime import datetime
 import pickle
 import scipy.stats
 
-def predictive_distribution_shift(x_synthetic_tensor, x_test_tensor):
-    """Compute Kolmogorov-Smirnov test statistic between sequence distributions."""
-    # encode bases using 0,1,2,3 (eliminate a dimension)
-    base_indices_test = np.argmax(x_test_tensor.detach().cpu().numpy(), axis=1)
-    base_indices_syn = np.argmax(x_synthetic_tensor.detach().cpu().numpy(), axis=1)
+def predictive_distribution_shift(y_hat_test, y_hat_syn):
+    """Compute Kolmogorov-Smirnov test statistic between predicted distributions."""
+    # Calculate KS statistic for each output dimension and take the mean
+    ks_statistic = scipy.stats.kstest(y_hat_test, y_hat_syn).statistic.mean()
+    return ks_statistic
 
-    # flatten the arrays (now they are one dimension)
-    base_indices_test_f = base_indices_test.flatten()
-    base_indices_syn_f = base_indices_syn.flatten()
-
-    # return ks test statistic
-    return scipy.stats.ks_2samp(base_indices_syn_f, base_indices_test_f).statistic
-
-def run_predictive_distribution_shift_analysis(x_test_tensor, x_synthetic_tensor, output_dir="."):
+def run_predictive_distribution_shift_analysis(deepstarr, x_test_tensor, x_synthetic_tensor, output_dir="."):
     """
     Run predictive distribution shift analysis.
     
@@ -25,6 +18,7 @@ def run_predictive_distribution_shift_analysis(x_test_tensor, x_synthetic_tensor
     functions of oracle predictions for generated and real sequences.
     
     Args:
+        deepstarr: The DeepSTARR oracle model
         x_test_tensor: Test sequences tensor
         x_synthetic_tensor: Synthetic sequences tensor
         output_dir: Directory to save results
@@ -32,14 +26,18 @@ def run_predictive_distribution_shift_analysis(x_test_tensor, x_synthetic_tensor
     Returns:
         dict: Results dictionary with distribution shift metric
     """
+    from utils.helpers import load_predictions
     
     current_date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     
+    print("Computing model predictions for distribution shift analysis...")
+    y_hat_test, y_hat_syn = load_predictions(x_test_tensor, x_synthetic_tensor, deepstarr)
+    
     print("Computing predictive distribution shift...")
-    hamming_distance = predictive_distribution_shift(x_synthetic_tensor, x_test_tensor)
+    ks_statistic = predictive_distribution_shift(y_hat_test, y_hat_syn)
     
     results = {
-        'predictive_distribution_shift_hamming_distance': hamming_distance
+        'predictive_distribution_shift_ks_statistic': ks_statistic
     }
     
     # Save results

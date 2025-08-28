@@ -177,7 +177,11 @@ def run_motif_cooccurrence_analysis(x_test_tensor, x_synthetic_tensor, output_di
     fn = frobenius_norm(C, C2)
     
     results = {
-        'frobenius_norm': fn
+        'frobenius_norm': fn,
+        'test_motif_matrix': np.array(test_motif_matrix),
+        'synthetic_motif_matrix': np.array(synthetic_motif_matrix),
+        'test_covariance_matrix': C,
+        'synthetic_covariance_matrix': C2
     }
     
     # Save results

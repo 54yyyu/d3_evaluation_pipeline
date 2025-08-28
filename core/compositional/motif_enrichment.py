@@ -166,7 +166,10 @@ def run_motif_enrichment_analysis(x_test_tensor, x_synthetic_tensor, output_dir=
     
     results = {
         'pearson_r_statistic': pr.statistic,
-        'pearson_r_pvalue': pr.pvalue
+        'pearson_r_pvalue': pr.pvalue,
+        'test_motif_counts': np.array(list(test_motif_counts.values())),
+        'synthetic_motif_counts': np.array(list(synthetic_motif_counts.values())),
+        'motif_ids': list(test_motif_counts.keys())
     }
     
     # Save results
