@@ -40,7 +40,7 @@ def calculate_frechet_distance(mu1, sigma1, mu2, sigma2, eps=1e-6):
     
     return diff.dot(diff) + np.trace(sigma1) + np.trace(sigma2) - 2 * tr_covmean
 
-def run_frechet_distance_analysis(deepstarr, x_test_tensor, x_synthetic_tensor, output_dir="."):
+def run_frechet_distance_analysis(deepstarr, x_test_tensor, x_synthetic_tensor, output_dir=".", sample_name=None):
     """
     Run Fréchet distance analysis.
     
@@ -52,6 +52,7 @@ def run_frechet_distance_analysis(deepstarr, x_test_tensor, x_synthetic_tensor, 
         x_test_tensor: Test sequences tensor
         x_synthetic_tensor: Synthetic sequences tensor
         output_dir: Directory to save results
+        sample_name: Name of sample for batch processing (optional)
         
     Returns:
         dict: Results dictionary with Fréchet distance
@@ -70,13 +71,32 @@ def run_frechet_distance_analysis(deepstarr, x_test_tensor, x_synthetic_tensor, 
     frechet_distance = calculate_frechet_distance(mu1, sigma1, mu2, sigma2)
     
     results = {
-        'frechet_distance': frechet_distance
+        'frechet_distance': frechet_distance,
+        'mu1': mu1,
+        'sigma1': sigma1,
+        'mu2': mu2,
+        'sigma2': sigma2
     }
     
-    # Save results
-    filename = f'{output_dir}/frechet_distance_{current_date}.pkl'
-    with open(filename, 'wb') as f:
-        pickle.dump(results, f)
+    # Handle batch vs single mode
+    if sample_name is not None:
+        # Batch mode - use new format
+        from utils.batch_helpers import write_concise_csv, write_full_h5, get_concise_metrics
+        
+        # Write concise metrics
+        concise_metrics = get_concise_metrics('frechet_distance', results)
+        write_concise_csv(output_dir, 'frechet_distance', sample_name, concise_metrics)
+        
+        # Write full results
+        write_full_h5(output_dir, 'frechet_distance', sample_name, results)
+        
+        print(f"Fréchet distance results saved for sample '{sample_name}'")
+    else:
+        # Single mode - keep original format
+        filename = f'{output_dir}/frechet_distance_{current_date}.pkl'
+        with open(filename, 'wb') as f:
+            pickle.dump(results, f)
+        
+        print(f"Fréchet distance results saved to '{filename}'")
     
-    print(f"Fréchet distance results saved to '{filename}'")
     return results

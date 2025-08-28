@@ -51,6 +51,9 @@ def parse_arguments():
                        default=os.getenv('SAMPLES_FILE', 'samples.npz'),
                        help='Path to samples NPZ file')
     
+    parser.add_argument('--samples-batch', type=str,
+                       help='Path to directory containing multiple NPZ files for batch processing')
+    
     parser.add_argument('--data', type=str,
                        default=os.getenv('DATA_FILE', 'DeepSTARR_data.h5'), 
                        help='Path to DeepSTARR data H5 file')
@@ -215,12 +218,183 @@ def load_data_and_model(args):
     }
 
 
+def run_batch_analysis(args):
+    """Run analysis in batch mode on multiple NPZ files."""
+    from utils.batch_helpers import discover_batch_samples, load_batch_sample
+    from utils.helpers import extract_data, numpy_to_tensor, load_deepstarr
+    
+    print("=== D3 Sequence Analysis Pipeline - Batch Mode ===")
+    
+    # Discover batch samples (this may exit if CSV template is created)
+    batch_samples = discover_batch_samples(args.samples_batch)
+    
+    # Validate that required files exist
+    required_files = [
+        (args.data, 'Data file'), 
+        (args.model, 'Model file')
+    ]
+    
+    missing_files = []
+    for file_path, description in required_files:
+        if not os.path.exists(file_path):
+            missing_files.append(f"{description}: {file_path}")
+    
+    if missing_files:
+        print("Error: Missing required files:")
+        for missing in missing_files:
+            print(f"  - {missing}")
+        sys.exit(1)
+    
+    # Setup output directory
+    output_dir = setup_output_directory(args.output_dir)
+    print(f"Results will be saved to: {output_dir}")
+    
+    # Load model and test data once (they're shared across all samples)
+    print("Loading model and test data...")
+    deepstarr = load_deepstarr(args.model)
+    
+    # Load test and training data from the data file
+    with h5py.File(args.data, 'r') as f:
+        x_test = f['X_test'][()]
+        x_train = f['X_train'][()]
+    
+    x_test_tensor = numpy_to_tensor(x_test)
+    x_train_tensor = numpy_to_tensor(x_train)
+    
+    # For attribution analysis, convert test data to proper format
+    X_test = torch.tensor(np.array(x_test).transpose(0,2,1), dtype=torch.float32)
+    
+    print(f"Loaded {len(x_test)} test sequences")
+    print(f"Loaded {len(x_train)} training sequences")
+    
+    # Determine which tests to run
+    if args.test:
+        test_list = [t.strip() for t in args.test.split(',')]
+        valid_tests = [
+            'cond_gen_fidelity', 'frechet_distance', 'predictive_dist_shift',
+            'percent_identity', 'kmer_spectrum_shift', 'discriminability',
+            'motif_enrichment', 'motif_cooccurrence', 'attribution_consistency'
+        ]
+        
+        invalid_tests = [t for t in test_list if t not in valid_tests]
+        if invalid_tests:
+            print(f"Error: Invalid test(s): {invalid_tests}")
+            print(f"Valid tests: {valid_tests}")
+            sys.exit(1)
+    else:
+        # Run tests based on similarity type flags
+        test_list = []
+        if not any([args.functional, args.sequence, args.compositional]):
+            # If no specific flags provided, run all tests
+            test_list = [
+                'cond_gen_fidelity', 'frechet_distance', 'predictive_dist_shift',
+                'percent_identity', 'kmer_spectrum_shift', 'discriminability',
+                'motif_enrichment', 'motif_cooccurrence', 'attribution_consistency'
+            ]
+        else:
+            if args.functional:
+                test_list.extend(['cond_gen_fidelity', 'frechet_distance', 'predictive_dist_shift'])
+            if args.sequence:
+                test_list.extend(['percent_identity', 'kmer_spectrum_shift', 'discriminability'])
+            if args.compositional:
+                test_list.extend(['motif_enrichment', 'motif_cooccurrence', 'attribution_consistency'])
+    
+    print(f"\nProcessing {len(batch_samples)} samples with {len(test_list)} analyses each...")
+    
+    # Process each sample
+    for i, sample_record in enumerate(batch_samples, 1):
+        sample_name = sample_record['sample_name']
+        print(f"\n[{i}/{len(batch_samples)}] Processing sample: {sample_name}")
+        
+        # Load sample data
+        sample_result = load_batch_sample(args.samples_batch, sample_record)
+        if sample_result is None:
+            print(f"Skipping {sample_name} due to loading error")
+            continue
+            
+        sample_name_loaded, npz_data = sample_result
+        
+        # Extract synthetic sequences from NPZ
+        try:
+            x_synthetic = np.transpose(npz_data['arr_0'], (0, 2, 1))  # Convert to (N, 4, L)
+            x_synthetic_tensor = numpy_to_tensor(x_synthetic)
+            
+            # For attribution analysis
+            sample_seqs = torch.tensor(npz_data['arr_0'], dtype=torch.float32)
+            
+            print(f"Loaded {len(x_synthetic)} synthetic sequences for {sample_name}")
+            
+        except Exception as e:
+            print(f"Error processing {sample_name}: {e}")
+            continue
+        
+        # Run each analysis for this sample
+        for j, test_name in enumerate(test_list, 1):
+            print(f"  [{j}/{len(test_list)}] Running {test_name.replace('_', ' ').title()}...")
+            try:
+                run_single_batch_test(test_name, deepstarr, x_test_tensor, x_synthetic_tensor, 
+                                     x_train_tensor, sample_seqs, X_test, output_dir, sample_name, args.motif_db)
+            except Exception as e:
+                import traceback
+                print(f"    ✗ {test_name} failed for {sample_name}: {e}")
+                traceback.print_exc()
+    
+    print(f"\n=== Batch Analysis Complete ===")
+    print(f"Results saved to: {output_dir}")
+    print(f"Check CSV files for concise metrics and H5 files for detailed results")
+
+
+def run_single_batch_test(test_name, deepstarr, x_test_tensor, x_synthetic_tensor, 
+                         x_train_tensor, sample_seqs, X_test, output_dir, sample_name, motif_db_path):
+    """Run a single test for batch mode."""
+    if test_name == 'cond_gen_fidelity':
+        run_conditional_generation_fidelity_analysis(
+            deepstarr, x_test_tensor, x_synthetic_tensor, output_dir, sample_name)
+    elif test_name == 'frechet_distance':
+        run_frechet_distance_analysis(
+            deepstarr, x_test_tensor, x_synthetic_tensor, output_dir, sample_name)
+    elif test_name == 'predictive_dist_shift':
+        run_predictive_distribution_shift_analysis(
+            deepstarr, x_test_tensor, x_synthetic_tensor, output_dir, sample_name)
+    elif test_name == 'percent_identity':
+        run_percent_identity_analysis(
+            x_synthetic_tensor, x_train_tensor, output_dir, sample_name)
+    elif test_name == 'kmer_spectrum_shift':
+        run_kmer_spectrum_shift_analysis(
+            x_test_tensor, x_synthetic_tensor, output_dir=output_dir, sample_name=sample_name)
+    elif test_name == 'discriminability':
+        # Check if discriminability data exists, if not create it first
+        discriminability_file = f'Discriminatability_{sample_name}.h5'
+        if not os.path.exists(discriminability_file):
+            from core.sequence.discriminability import prep_data_for_classification
+            from utils.helpers import write_to_h5
+            data_dict = prep_data_for_classification(x_test_tensor, x_synthetic_tensor)
+            write_to_h5(discriminability_file, data_dict)
+        run_discriminability_analysis_modular(
+            output_dir=output_dir, h5_file=discriminability_file, sample_name=sample_name)
+    elif test_name == 'motif_enrichment':
+        run_motif_enrichment_analysis(
+            x_test_tensor, x_synthetic_tensor, output_dir, motif_db_path, sample_name)
+    elif test_name == 'motif_cooccurrence':
+        run_motif_cooccurrence_analysis(
+            x_test_tensor, x_synthetic_tensor, output_dir, motif_db_path, sample_name)
+    elif test_name == 'attribution_consistency':
+        run_attribution_consistency_analysis_modular(
+            deepstarr, sample_seqs, X_test, output_dir, sample_name)
+
+
 def main():
     """Main analysis pipeline with on-the-fly result saving."""
     print("=== D3 Sequence Analysis Pipeline ===")
     
     # Parse arguments and validate inputs
     args = parse_arguments()
+    
+    # Check if batch mode
+    if args.samples_batch:
+        run_batch_analysis(args)
+        return
+    
     validate_inputs(args)
     
     # Setup output directory
@@ -306,7 +480,7 @@ def run_single_modular_test(test_name, data, output_dir, all_results, completed_
                 data['deepstarr'], data['x_test_tensor'], data['x_synthetic_tensor'], output_dir)
         elif test_name == 'predictive_dist_shift':
             results = run_predictive_distribution_shift_analysis(
-                data['x_test_tensor'], data['x_synthetic_tensor'], output_dir)
+                data['deepstarr'], data['x_test_tensor'], data['x_synthetic_tensor'], output_dir)
         elif test_name == 'percent_identity':
             results = run_percent_identity_analysis(
                 data['x_synthetic_tensor'], data['x_train_tensor'], output_dir)

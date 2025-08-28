@@ -461,7 +461,7 @@ def train_discriminability_classifier(h5_file='Discriminatability.h5',
     return results
 
 
-def run_discriminability_analysis(output_dir, h5_file='Discriminatability.h5', verbose=True):
+def run_discriminability_analysis(output_dir, h5_file='Discriminatability.h5', verbose=True, sample_name=None):
     """
     Run complete discriminability analysis.
     
@@ -472,6 +472,7 @@ def run_discriminability_analysis(output_dir, h5_file='Discriminatability.h5', v
         output_dir (str): Directory to save results
         h5_file (str): Path to discriminability data file  
         verbose (bool): Whether to print verbose output
+        sample_name: Name of sample for batch processing (optional)
         
     Returns:
         dict: Analysis results including AUROC score
@@ -489,21 +490,35 @@ def run_discriminability_analysis(output_dir, h5_file='Discriminatability.h5', v
             verbose=verbose
         )
         
-        # Save results
-        results_file = os.path.join(output_dir, 'discriminability_results.json')
-        import json
-        with open(results_file, 'w') as f:
-            # Convert numpy types to Python types for JSON serialization
-            json_results = {}
-            for key, value in results.items():
-                if isinstance(value, (np.integer, np.floating)):
-                    json_results[key] = value.item()
-                else:
-                    json_results[key] = value
-            json.dump(json_results, f, indent=2)
-        
-        if verbose:
-            print(f"Results saved to: {results_file}")
+        # Handle batch vs single mode
+        if sample_name is not None:
+            # Batch mode - use new format
+            from utils.batch_helpers import write_concise_csv, write_full_h5, get_concise_metrics
+            
+            # Write concise metrics
+            concise_metrics = get_concise_metrics('discriminability', results)
+            write_concise_csv(output_dir, 'discriminability', sample_name, concise_metrics)
+            
+            # Write full results
+            write_full_h5(output_dir, 'discriminability', sample_name, results)
+            
+            print(f"Discriminability results saved for sample '{sample_name}'")
+        else:
+            # Single mode - keep original format
+            results_file = os.path.join(output_dir, 'discriminability_results.json')
+            import json
+            with open(results_file, 'w') as f:
+                # Convert numpy types to Python types for JSON serialization
+                json_results = {}
+                for key, value in results.items():
+                    if isinstance(value, (np.integer, np.floating)):
+                        json_results[key] = value.item()
+                    else:
+                        json_results[key] = value
+                json.dump(json_results, f, indent=2)
+            
+            if verbose:
+                print(f"Results saved to: {results_file}")
         
         return results
         

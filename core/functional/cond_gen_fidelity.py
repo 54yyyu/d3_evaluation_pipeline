@@ -7,7 +7,7 @@ def conditional_generation_fidelity(activity1, activity2):
     """Compute MSE between predicted activities."""
     return np.mean((activity1 - activity2)**2)
 
-def run_conditional_generation_fidelity_analysis(deepstarr, x_test_tensor, x_synthetic_tensor, output_dir="."):
+def run_conditional_generation_fidelity_analysis(deepstarr, x_test_tensor, x_synthetic_tensor, output_dir=".", sample_name=None):
     """
     Run conditional generation fidelity analysis.
     
@@ -19,6 +19,7 @@ def run_conditional_generation_fidelity_analysis(deepstarr, x_test_tensor, x_syn
         x_test_tensor: Test sequences tensor  
         x_synthetic_tensor: Synthetic sequences tensor
         output_dir: Directory to save results
+        sample_name: Name of sample for batch processing (optional)
         
     Returns:
         dict: Results dictionary with fidelity MSE
@@ -35,10 +36,25 @@ def run_conditional_generation_fidelity_analysis(deepstarr, x_test_tensor, x_syn
         'conditional_generation_fidelity_mse': mse
     }
     
-    # Save results
-    filename = f'{output_dir}/cond_gen_fidelity_{current_date}.pkl'
-    with open(filename, 'wb') as f:
-        pickle.dump(results, f)
+    # Handle batch vs single mode
+    if sample_name is not None:
+        # Batch mode - use new format
+        from utils.batch_helpers import write_concise_csv, write_full_h5, get_concise_metrics
+        
+        # Write concise metrics
+        concise_metrics = get_concise_metrics('cond_gen_fidelity', results)
+        write_concise_csv(output_dir, 'cond_gen_fidelity', sample_name, concise_metrics)
+        
+        # Write full results
+        write_full_h5(output_dir, 'cond_gen_fidelity', sample_name, results)
+        
+        print(f"Conditional generation fidelity results saved for sample '{sample_name}'")
+    else:
+        # Single mode - keep original format
+        filename = f'{output_dir}/cond_gen_fidelity_{current_date}.pkl'
+        with open(filename, 'wb') as f:
+            pickle.dump(results, f)
+        
+        print(f"Conditional generation fidelity results saved to '{filename}'")
     
-    print(f"Conditional generation fidelity results saved to '{filename}'")
     return results

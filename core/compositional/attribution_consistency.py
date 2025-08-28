@@ -278,7 +278,7 @@ def Empiciral_box_pdf_func_2(phi_1, phi_2, r_s, n_bins, box_length, box_volume):
                 count_single_points+=1
     return Empirical_box_pdf * correction * 1 , Empirical_box_count *correction , Empirical_box_count_plain #, correction2
 
-def run_attribution_consistency_analysis(deepstarr, sample_seqs, X_test, output_dir="."):
+def run_attribution_consistency_analysis(deepstarr, sample_seqs, X_test, output_dir=".", sample_name=None):
     """
     Run attribution consistency analysis on sample sequences and test data.
     
@@ -287,6 +287,7 @@ def run_attribution_consistency_analysis(deepstarr, sample_seqs, X_test, output_
         sample_seqs: Sample sequences tensor (N, L, A)
         X_test: Test sequences tensor (N, L, A)  
         output_dir: Directory to save results
+        sample_name: Name of sample for batch processing (optional)
         
     Returns:
         dict: Results dictionary with entropic information
@@ -341,16 +342,33 @@ def run_attribution_consistency_analysis(deepstarr, sample_seqs, X_test, output_
     LIM, box_length, box_volume, n_bins, n_bins_half = initialize_integration_2(0.1)
     entropic_information_concatenated = calculate_entropy_2(phi_1_s, phi_2_s, r_s, n_bins, 0.1, box_volume, prior_range=3)
     
-    # Create results dictionary
+    # Create results dictionary with concise metric names
     results = {
         'entropic information of top 2000 activity sampled sequences': entropic_information_top_sampled,
-        'entropic information of concatenated sequences': entropic_information_concatenated
+        'entropic information of concatenated sequences': entropic_information_concatenated,
+        'KLD': entropic_information_top_sampled[0] if entropic_information_top_sampled else 0,  # First value for concise metrics
+        'KLD_concat': entropic_information_concatenated[0] if entropic_information_concatenated else 0  # First value for concise metrics
     }
     
-    # Save results
-    filename = f'{output_dir}/attribution_consistency_{current_date}.pkl'
-    with open(filename, 'wb') as f:
-        pickle.dump(results, f)
+    # Handle batch vs single mode
+    if sample_name is not None:
+        # Batch mode - use new format
+        from utils.batch_helpers import write_concise_csv, write_full_h5, get_concise_metrics
+        
+        # Write concise metrics
+        concise_metrics = get_concise_metrics('attribution_consistency', results)
+        write_concise_csv(output_dir, 'attribution_consistency', sample_name, concise_metrics)
+        
+        # Write full results
+        write_full_h5(output_dir, 'attribution_consistency', sample_name, results)
+        
+        print(f"Attribution consistency results saved for sample '{sample_name}'")
+    else:
+        # Single mode - keep original format
+        filename = f'{output_dir}/attribution_consistency_{current_date}.pkl'
+        with open(filename, 'wb') as f:
+            pickle.dump(results, f)
+        
+        print(f"Attribution consistency results saved to '{filename}'")
     
-    print(f"Attribution consistency results saved to '{filename}'")
     return results

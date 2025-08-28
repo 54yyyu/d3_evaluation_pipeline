@@ -124,7 +124,7 @@ class kmer_featurization:
 
         return numbering
 
-def run_kmer_spectrum_shift_analysis(x_test_tensor, x_synthetic_tensor, kmer_length=6, output_dir="."):
+def run_kmer_spectrum_shift_analysis(x_test_tensor, x_synthetic_tensor, kmer_length=6, output_dir=".", sample_name=None):
     """
     Run k-mer spectrum shift analysis.
     
@@ -134,8 +134,9 @@ def run_kmer_spectrum_shift_analysis(x_test_tensor, x_synthetic_tensor, kmer_len
     Args:
         x_test_tensor: Test sequences tensor
         x_synthetic_tensor: Synthetic sequences tensor
-        kmer_length: Length of k-mers to analyze (default: 3)
+        kmer_length: Length of k-mers to analyze (default: 6)
         output_dir: Directory to save results
+        sample_name: Name of sample for batch processing (optional)
         
     Returns:
         dict: Results dictionary with k-mer statistics
@@ -152,13 +153,29 @@ def run_kmer_spectrum_shift_analysis(x_test_tensor, x_synthetic_tensor, kmer_len
     results = {
         'kmer_spectra_kullback_leibler_divergence': Kullback_Leibler_divergence,
         'kmer_spectra_jensen_shannon_distance': Jensen_Shannon_distance,
+        'js_distance': Jensen_Shannon_distance,  # Alias for concise metrics
         'kmer_length': kmer_length
     }
     
-    # Save results
-    filename = f'{output_dir}/kmer_spectrum_shift_{current_date}.pkl'
-    with open(filename, 'wb') as f:
-        pickle.dump(results, f)
+    # Handle batch vs single mode
+    if sample_name is not None:
+        # Batch mode - use new format
+        from utils.batch_helpers import write_concise_csv, write_full_h5, get_concise_metrics
+        
+        # Write concise metrics
+        concise_metrics = get_concise_metrics('kmer_spectrum_shift', results)
+        write_concise_csv(output_dir, 'kmer_spectrum_shift', sample_name, concise_metrics)
+        
+        # Write full results
+        write_full_h5(output_dir, 'kmer_spectrum_shift', sample_name, results)
+        
+        print(f"k-mer spectrum shift results saved for sample '{sample_name}'")
+    else:
+        # Single mode - keep original format
+        filename = f'{output_dir}/kmer_spectrum_shift_{current_date}.pkl'
+        with open(filename, 'wb') as f:
+            pickle.dump(results, f)
+        
+        print(f"k-mer spectrum shift results saved to '{filename}'")
     
-    print(f"k-mer spectrum shift results saved to '{filename}'")
     return results

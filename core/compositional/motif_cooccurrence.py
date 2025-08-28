@@ -132,7 +132,7 @@ def frobenius_norm(cov, cov2):
     """Compute Frobenius norm between two covariance matrices."""
     return np.sqrt(np.sum((cov - cov2)**2))
 
-def run_motif_cooccurrence_analysis(x_test_tensor, x_synthetic_tensor, output_dir=".", motif_db_path='JASPAR2024_CORE_non-redundant_pfms_meme.txt'):
+def run_motif_cooccurrence_analysis(x_test_tensor, x_synthetic_tensor, output_dir=".", motif_db_path='JASPAR2024_CORE_non-redundant_pfms_meme.txt', sample_name=None):
     """
     Run motif co-occurrence analysis.
     
@@ -144,6 +144,7 @@ def run_motif_cooccurrence_analysis(x_test_tensor, x_synthetic_tensor, output_di
         x_synthetic_tensor: Synthetic sequences tensor
         output_dir: Directory to save results
         motif_db_path: Path to motif database file (default: JASPAR2024_CORE_non-redundant_pfms_meme.txt)
+        sample_name: Name of sample for batch processing (optional)
         
     Returns:
         dict: Results dictionary with motif co-occurrence statistics
@@ -184,10 +185,25 @@ def run_motif_cooccurrence_analysis(x_test_tensor, x_synthetic_tensor, output_di
         'synthetic_covariance_matrix': C2
     }
     
-    # Save results
-    filename = f'{output_dir}/motif_cooccurrence_{current_date}.pkl'
-    with open(filename, 'wb') as f:
-        pickle.dump(results, f)
+    # Handle batch vs single mode
+    if sample_name is not None:
+        # Batch mode - use new format
+        from utils.batch_helpers import write_concise_csv, write_full_h5, get_concise_metrics
+        
+        # Write concise metrics
+        concise_metrics = get_concise_metrics('motif_cooccurrence', results)
+        write_concise_csv(output_dir, 'motif_cooccurrence', sample_name, concise_metrics)
+        
+        # Write full results
+        write_full_h5(output_dir, 'motif_cooccurrence', sample_name, results)
+        
+        print(f"Motif co-occurrence results saved for sample '{sample_name}'")
+    else:
+        # Single mode - keep original format
+        filename = f'{output_dir}/motif_cooccurrence_{current_date}.pkl'
+        with open(filename, 'wb') as f:
+            pickle.dump(results, f)
+        
+        print(f"Motif co-occurrence results saved to '{filename}'")
     
-    print(f"Motif co-occurrence results saved to '{filename}'")
     return results

@@ -4,6 +4,10 @@ from datetime import datetime
 import pickle
 from tqdm import tqdm
 
+print("=" * 60)
+print("PERCENT IDENTITY ANALYSIS")
+print("=" * 60)
+
 def calculate_sequence_identity_batch(X_source, X_target, batch_size=256):
     """Calculate percent identity using normalized Hamming distance.
     
@@ -47,7 +51,7 @@ def calculate_sequence_identity_batch(X_source, X_target, batch_size=256):
     
     return percent_identity
 
-def run_percent_identity_analysis(x_synthetic_tensor, x_train_tensor, output_dir="."):
+def run_percent_identity_analysis(x_synthetic_tensor, x_train_tensor, output_dir=".", sample_name=None):
     """
     Run percent identity analysis.
     
@@ -58,6 +62,7 @@ def run_percent_identity_analysis(x_synthetic_tensor, x_train_tensor, output_dir
         x_synthetic_tensor: Synthetic sequences tensor
         x_train_tensor: Training sequences tensor
         output_dir: Directory to save results
+        sample_name: Name of sample for batch processing (optional)
         
     Returns:
         dict: Results dictionary with percent identity metrics
@@ -83,13 +88,30 @@ def run_percent_identity_analysis(x_synthetic_tensor, x_train_tensor, output_dir
         'global_max_percent_identity_samples_vs_samples': global_max_percent_identity_1,
         'global_max_percent_identity_samples_vs_training': global_max_percent_identity_2,
         'average_max_percent_identity_samples_vs_samples': average_max_percent_identity_1,
-        'average_max_percent_identity_samples_vs_training': average_max_percent_identity_2
+        'average_max_percent_identity_samples_vs_training': average_max_percent_identity_2,
+        'percent_identity_matrix_samples_vs_samples': percent_identity_1,
+        'percent_identity_matrix_samples_vs_training': percent_identity_2
     }
     
-    # Save results
-    filename = f'{output_dir}/percent_identity_{current_date}.pkl'
-    with open(filename, 'wb') as f:
-        pickle.dump(results, f)
+    # Handle batch vs single mode
+    if sample_name is not None:
+        # Batch mode - use new format
+        from utils.batch_helpers import write_concise_csv, write_full_h5, get_concise_metrics
+        
+        # Write concise metrics
+        concise_metrics = get_concise_metrics('percent_identity', results)
+        write_concise_csv(output_dir, 'percent_identity', sample_name, concise_metrics)
+        
+        # Write full results
+        write_full_h5(output_dir, 'percent_identity', sample_name, results)
+        
+        print(f"Percent identity results saved for sample '{sample_name}'")
+    else:
+        # Single mode - keep original format
+        filename = f'{output_dir}/percent_identity_{current_date}.pkl'
+        with open(filename, 'wb') as f:
+            pickle.dump(results, f)
+        
+        print(f"Percent identity results saved to '{filename}'")
     
-    print(f"Percent identity results saved to '{filename}'")
     return results

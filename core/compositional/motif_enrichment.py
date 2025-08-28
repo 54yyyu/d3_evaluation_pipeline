@@ -126,7 +126,7 @@ def enrich_pr(count_1, count_2):
     
     return scipy.stats.pearsonr(c_1, c_2)
 
-def run_motif_enrichment_analysis(x_test_tensor, x_synthetic_tensor, output_dir=".", motif_db_path='JASPAR2024_CORE_non-redundant_pfms_meme.txt'):
+def run_motif_enrichment_analysis(x_test_tensor, x_synthetic_tensor, output_dir=".", motif_db_path='JASPAR2024_CORE_non-redundant_pfms_meme.txt', sample_name=None):
     """
     Run motif enrichment analysis.
     
@@ -138,6 +138,7 @@ def run_motif_enrichment_analysis(x_test_tensor, x_synthetic_tensor, output_dir=
         x_synthetic_tensor: Synthetic sequences tensor
         output_dir: Directory to save results
         motif_db_path: Path to motif database file (default: JASPAR2024_CORE_non-redundant_pfms_meme.txt)
+        sample_name: Name of sample for batch processing (optional)
         
     Returns:
         dict: Results dictionary with motif enrichment statistics
@@ -172,10 +173,25 @@ def run_motif_enrichment_analysis(x_test_tensor, x_synthetic_tensor, output_dir=
         'motif_ids': list(test_motif_counts.keys())
     }
     
-    # Save results
-    filename = f'{output_dir}/motif_enrichment_{current_date}.pkl'
-    with open(filename, 'wb') as f:
-        pickle.dump(results, f)
+    # Handle batch vs single mode
+    if sample_name is not None:
+        # Batch mode - use new format
+        from utils.batch_helpers import write_concise_csv, write_full_h5, get_concise_metrics
+        
+        # Write concise metrics
+        concise_metrics = get_concise_metrics('motif_enrichment', results)
+        write_concise_csv(output_dir, 'motif_enrichment', sample_name, concise_metrics)
+        
+        # Write full results
+        write_full_h5(output_dir, 'motif_enrichment', sample_name, results)
+        
+        print(f"Motif enrichment results saved for sample '{sample_name}'")
+    else:
+        # Single mode - keep original format
+        filename = f'{output_dir}/motif_enrichment_{current_date}.pkl'
+        with open(filename, 'wb') as f:
+            pickle.dump(results, f)
+        
+        print(f"Motif enrichment results saved to '{filename}'")
     
-    print(f"Motif enrichment results saved to '{filename}'")
     return results
