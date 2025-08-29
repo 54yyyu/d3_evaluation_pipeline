@@ -215,3 +215,4 @@ sub_synthetic_seq.txt
 sub_test_seq.txt
 
 notebooks/
+generated_sequences/
