@@ -1,397 +1,293 @@
-# D3 Evaluation Pipeline
+# D3 Sequence Analysis Pipeline
 
-A comprehensive evaluation pipeline for assessing the quality of synthetic DNA sequences. This pipeline provides standardized metrics for evaluating generated sequences across functional, sequence-level, and compositional dimensions.
+This reorganized analysis pipeline provides a unified interface to run all sequence evaluation tasks.
 
-## Overview
+## Structure
 
-The evaluation pipeline implements three main categories of evaluation metrics:
-
-- **Functional Similarity**: How well synthetic sequences match the functional behavior of test sequences as measured by oracle models
-- **Sequence Similarity**: Direct sequence-level comparison metrics including percent identity, k-mer analysis, and discriminatability
-- **Compositional Similarity**: Analysis of motif content, co-occurrence patterns, and attribution consistency
-
-## Installation
-
-### Requirements
-
-- Python 3.8+
-- PyTorch 1.9+
-- CUDA (optional, for GPU acceleration)
-
-### Install from source
-
-```bash
-git clone <repository-url>
-cd evaluation_pipeline
-pip install -e .
+```
+analysis/
+├── main.py                    # Main runner script
+├── core/                      # Core analysis modules
+│   ├── attribution_analysis.py
+│   ├── functional_similarity.py
+│   └── motif_analysis.py
+├── utils/                     # Utility functions
+│   ├── helpers.py
+│   └── seq_evals_func_motifs.py
+└── training/                  # Training scripts (separated)
+    ├── EvoAug_run_train.py
+    └── finetune_run_train.py
 ```
 
-### Install with optional dependencies
+## Usage
+
+### Single Sample Mode
 
 ```bash
-# For motif analysis
-pip install -e .[motif-analysis]
+# Run all tests (default)
+python main.py --samples samples.npz --data DeepSTARR_data.h5 --model oracle_DeepSTARR_DeepSTARR_data.ckpt
 
-# For attribution analysis
-pip install -e .[attribution]
+# Run tests by similarity type
+python main.py --functional --samples samples.npz --data DeepSTARR_data.h5 --model oracle_DeepSTARR_DeepSTARR_data.ckpt
+python main.py --sequence --samples samples.npz --data DeepSTARR_data.h5 --model oracle_DeepSTARR_DeepSTARR_data.ckpt
+python main.py --compositional --samples samples.npz --data DeepSTARR_data.h5 --model oracle_DeepSTARR_DeepSTARR_data.ckpt
 
-# For visualization
-pip install -e .[visualization]
+# Run specific tests
+python main.py --test cond_gen_fidelity --samples samples.npz --data DeepSTARR_data.h5 --model oracle_DeepSTARR_DeepSTARR_data.ckpt
+python main.py --test "cond_gen_fidelity,frechet_distance" --samples samples.npz --data DeepSTARR_data.h5 --model oracle_DeepSTARR_DeepSTARR_data.ckpt
+```
 
-# Install all optional dependencies
+### Batch Mode (NEW!)
+
+Process multiple samples at once with organized CSV and HDF5 outputs:
+
+```bash
+# First run: Creates CSV template and exits for customization
+python main.py --samples-batch /path/to/batch_folder --data DeepSTARR_data.h5 --model oracle_model.ckpt
+
+# Second run: Processes all samples after optional CSV editing
+python main.py --samples-batch /path/to/batch_folder --data DeepSTARR_data.h5 --model oracle_model.ckpt
+
+# Run specific analysis types in batch mode
+python main.py --samples-batch /path/to/batch_folder --functional --data DeepSTARR_data.h5 --model oracle_model.ckpt
+python main.py --samples-batch /path/to/batch_folder --test "motif_enrichment,percent_identity" --data DeepSTARR_data.h5 --model oracle_model.ckpt
+```
+
+#### Supported Directory Structures
+
+**Flat Structure**: Each NPZ file is one sample
+```
+batch_folder/
+├── sample1.npz
+├── sample2.npz
+├── sample3.npz
+└── metadata.csv (auto-generated)
+```
+
+**Nested Structure**: Multiple NPZ files per sample (multiple data points)
+```
+batch_folder/
+├── sample1/
+│   ├── run_001.npz
+│   ├── run_002.npz
+│   └── run_003.npz
+├── sample2/
+│   ├── run_001.npz
+│   └── run_002.npz
+└── metadata.csv (auto-generated)
+```
+
+### With Environment Variables
+```bash
+export SAMPLES_FILE=samples.npz
+export DATA_FILE=DeepSTARR_data.h5  
+export MODEL_FILE=oracle_DeepSTARR_DeepSTARR_data.ckpt
+python analysis/main.py
+```
+
+### Selective Analysis
+
+```bash
+# Run only functional similarity tests
+python main.py --functional
+
+# Run multiple similarity types
+python main.py --functional --sequence
+
+# Run specific tests
+python main.py --test frechet_distance
+python main.py --test "motif_enrichment,percent_identity"
+
+# Custom output directory
+python main.py --output-dir my_results
+
+# Custom motif database for compositional similarity tests
+python main.py --compositional --motif-db /path/to/custom_motifs.meme
+python main.py --test motif_enrichment --motif-db /path/to/custom_motifs.meme
+```
+
+## Analysis Components
+
+The pipeline is organized by similarity type as described in the evaluation framework paper:
+
+#### Functional Similarity
+- **Conditional Generation Fidelity** - MSE between oracle predictions 
+- **Fréchet Distance** - Distribution comparison of oracle embeddings
+- **Predictive Distribution Shift** - Kolmogorov-Smirnov test on predictions
+
+#### Sequence Similarity  
+- **Percent Identity** - Normalized Hamming distance for memorization/diversity
+- **k-mer Spectrum Shift** - Jensen-Shannon divergence of k-mer frequencies
+- **Discriminability** - Binary classifier AUROC score
+
+#### Compositional Similarity
+- **Motif Enrichment** - Pearson correlation of motif occurrence counts
+- **Motif Co-occurrence** - Frobenius norm of motif covariance matrices
+- **Attribution Consistency** - KL divergence of attribution patterns
+
+## Output
+
+Results are saved **immediately** after each analysis completes to timestamped directories under `results/` (or custom `--output-dir`):
+
+### Single Sample Mode Output
+```
+results/analysis_results_2024-01-15_14-30-25/
+├── attribution_consistency_2024-01-15_14-31-45.pkl     # Individual analysis results
+├── functional_similarity_2024-01-15_14-35-12.pkl       # (saved immediately)
+├── motifs_2024-01-15_14-38-30.pkl                      # 
+├── all_results_combined.pkl                            # Combined results (updated after each analysis)
+└── analysis_progress.json                              # Progress tracking (updated after each analysis)
+```
+
+### Batch Mode Output (NEW!)
+
+Batch mode creates **two output formats** for each analysis:
+
+```
+results/analysis_results_2024-01-15_14-30-25/
+├── motif_enrichment.csv                    # Concise metrics: samples as columns, metrics as rows
+├── motif_enrichment.h5                     # Full results: comprehensive data per sample
+├── cond_gen_fidelity.csv                   # Key metric: conditional_generation_fidelity_mse
+├── cond_gen_fidelity.h5                    # Full results: predictions, embeddings, etc.
+├── percent_identity.csv                    # Key metric: average_max_percent_identity_samples_vs_training
+├── percent_identity.h5                     # Full results: identity matrices, detailed stats
+└── ... (all other analyses)
+```
+
+#### Concise CSV Format
+Each analysis produces a CSV with **key metrics only**:
+
+| Analysis | Key Metrics | Description |
+|----------|-------------|-------------|
+| `attribution_consistency.csv` | KLD, KLD_concat | KL divergence values |
+| `motif_cooccurrence.csv` | frobenius_norm | Matrix comparison metric |
+| `motif_enrichment.csv` | pearson_r_statistic | Correlation coefficient |
+| `cond_gen_fidelity.csv` | conditional_generation_fidelity_mse | Mean squared error |
+| `frechet_distance.csv` | frechet_distance | Distribution distance |
+| `predictive_dist_shift.csv` | predictive_distribution_shift_ks_statistic | KS test statistic |
+| `discriminability.csv` | auroc | Area under ROC curve |
+| `kmer_spectrum_shift.csv` | js_distance | Jensen-Shannon distance |
+| `percent_identity.csv` | average_max_percent_identity_samples_vs_training | Identity score |
+
+**CSV Structure**: 
+- **Columns**: Sample names
+- **Rows**: Metric values (multiple rows for nested structure with multiple NPZ files per sample)
+
+#### Full HDF5 Format
+Each analysis produces an HDF5 file with **comprehensive results**:
+- Arrays and matrices (e.g., motif counts, identity matrices)
+- Detailed statistics and intermediate computations
+- Sample-specific groups for organized data access
+
+### Progress Tracking
+- **`analysis_progress.json`**: Real-time progress with completed analyses and summary
+- **`all_results_combined.pkl`**: Updated after each analysis completes
+- **Individual files**: Each analysis saves its own timestamped pickle file
+
+### Benefits
+- **Fault tolerance**: If one analysis fails, others continue and results are preserved
+- **Real-time monitoring**: Check progress without waiting for completion
+- **Partial results**: Access completed analyses immediately
+- **Resume capability**: Know exactly which analyses completed successfully
+- **Batch processing**: Handle multiple samples efficiently with organized outputs
+- **Dual formats**: Concise CSVs for quick analysis + comprehensive HDF5 for detailed examination
+- **Flexible structure**: Support both flat and nested directory organizations
+
+## Batch Mode Workflow
+
+### 1. Initial Setup
+```bash
+# First run creates metadata template
+python main.py --samples-batch /path/to/samples --data data.h5 --model model.ckpt
+# Output: "CSV wasn't found, template created, can modify the sample names before running again"
+```
+
+### 2. Optional Customization
+Edit the auto-generated `metadata.csv` to customize sample names:
+```csv
+sample_name,file_path,created_date
+my_sample_1,sample1.npz,2024-01-15_10-30-45
+my_experiment_2,sample2.npz,2024-01-15_10-30-45
+control_group,sample3.npz,2024-01-15_10-30-45
+```
+
+### 3. Run Analysis
+```bash
+# Process all samples with customized names
+python main.py --samples-batch /path/to/samples --data data.h5 --model model.ckpt
+```
+
+### 4. Results
+- **Concise CSVs**: Quick overview with key metrics
+- **Full HDF5 files**: Comprehensive data for detailed analysis
+- **Sample columns**: Easy comparison across experiments
+
+## Requirements
+
+Install using pip:
+
+```bash
+# Basic installation with pymemesuite fallback
+pip install -e .
+
+# Install with memelite support (recommended)
+pip install -e .[memelite]
+
+# Full installation with all optional dependencies
 pip install -e .[all]
 ```
 
-## Quick Start
-
-### Basic Usage
-
-Run the full evaluation pipeline:
+Or using the pyproject.toml:
 
 ```bash
-python scripts/run_full_pipeline.py \
-    --samples-path samples.npz \
-    --dataset-path DeepSTARR_data.h5 \
-    --oracle-path oracle_DeepSTARR_DeepSTARR_data.ckpt \
-    --motif-database-path JASPAR2024_CORE_non-redundant_pfms_meme.txt \
-    --output-dir results/
+pip install -e .
 ```
 
-Run a single evaluation type:
-
-```bash
-python scripts/run_single_evaluation.py functional \
-    --samples-path samples.npz \
-    --dataset-path DeepSTARR_data.h5 \
-    --oracle-path oracle_DeepSTARR_DeepSTARR_data.ckpt \
-    --output-dir results/
-```
-
-### Using Configuration Files
-
-Create a configuration file for your dataset:
-
-```yaml
-# my_config.yaml
-data:
-  samples_path: "my_samples.npz"
-  dataset_path: "my_dataset.h5"
-  oracle_path: "my_oracle.ckpt"
-  motif_database_path: "motifs.txt"
-
-evaluation:
-  batch_size: 4096
-  kmer_lengths: [3, 4, 5]
-```
-
-Run with configuration:
-
-```bash
-python scripts/run_full_pipeline.py --config my_config.yaml
-```
-
-## Input Data Format
-
-### Required Inputs
-
-1. **Synthetic Sequences** (`samples.npz`): Generated sequences in NPZ format
-   - Shape: (N, A, L) or (N, L, A) where N=samples, A=alphabet_size (4), L=sequence_length
-
-2. **Dataset** (`dataset.h5`): HDF5 file containing:
-   - `X_test`: Test sequences (N, A, L) or (N, L, A)
-   - `X_train`: Training sequences (N, A, L) or (N, L, A)
-   - `Y_test`, `Y_train`: Labels (optional)
-
-3. **Oracle Model** (`oracle.ckpt`): Trained model checkpoint
-   - Currently supports DeepSTARR models
-   - Must be compatible with PyTorch Lightning
-
-### Optional Inputs
-
-4. **Motif Database** (`.txt`): MEME format motif database
-   - Required for compositional similarity analysis
-   - Example: JASPAR database in MEME format
-
-## Evaluation Metrics
-
-### Functional Similarity
-
-Measures how well synthetic sequences match functional behavior:
-
-- **Conditional Generation Fidelity**: MSE between oracle predictions on synthetic vs test sequences
-- **Fréchet Distance**: Distance between embedding distributions from oracle model
-- **Predictive Distribution Shift**: KS test on base composition distributions
-
-### Sequence Similarity
-
-Direct sequence-level comparisons:
-
-- **Percent Identity**: Cross-sequence identity calculations
-- **K-mer Spectrum Analysis**: KL divergence and Jensen-Shannon distance of k-mer distributions
-- **Discriminatability**: Prepares data for training classifiers to distinguish real vs synthetic
-
-### Compositional Similarity
-
-Analysis of sequence composition and regulatory elements:
-
-- **Motif Enrichment**: Correlation of motif counts between synthetic and test sequences
-- **Motif Co-occurrence**: Frobenius norm of covariance matrix differences
-- **Attribution Consistency**: Consistency of gradient-based attribution maps
-
-## Configuration
-
-### Dataset-Specific Configurations
-
-Pre-configured settings for common datasets:
-
-```bash
-# Use DeepSTARR configuration
-python scripts/run_full_pipeline.py --dataset deepstarr --samples-path samples.npz
-```
-
-### Custom Configuration
-
-Create custom YAML configurations:
-
-```yaml
-# config.yaml
-data:
-  samples_path: "samples.npz"
-  dataset_path: "dataset.h5"
-  oracle_path: "oracle.ckpt"
-
-model:
-  type: "deepstarr"
-  embedding_layer: "model.batchnorm6"
-
-evaluation:
-  run_functional_similarity: true
-  run_sequence_similarity: true
-  run_compositional_similarity: true
-  batch_size: 2000
-  kmer_lengths: [3, 4, 5]
-
-output:
-  results_dir: "results"
-  format: "pickle"
-```
-
-## Command Line Interface
-
-### Full Pipeline
-
-```bash
-python scripts/run_full_pipeline.py [OPTIONS]
-
-Options:
-  --samples-path TEXT         Path to synthetic sequences (required)
-  --dataset-path TEXT         Path to dataset (required)  
-  --oracle-path TEXT          Path to oracle model (required)
-  --motif-database-path TEXT  Path to motif database
-  --config TEXT               Configuration file
-  --dataset TEXT              Dataset name for default config
-  --output-dir TEXT           Output directory
-  --skip-functional           Skip functional similarity
-  --skip-sequence            Skip sequence similarity  
-  --skip-compositional       Skip compositional similarity
-  --batch-size INTEGER       Batch size for computations
-  --device [auto|cpu|cuda]   Computation device
-  --seed INTEGER             Random seed
-  --verbose                  Enable verbose logging
-```
-
-### Single Evaluation
-
-```bash
-python scripts/run_single_evaluation.py [functional|sequence|compositional] [OPTIONS]
-
-Options:
-  Similar to full pipeline, specific to the evaluation type
-```
-
-## Output Format
-
-### Results Structure
-
-```python
-{
-    "evaluation_summary": {
-        "total_evaluations": 3,
-        "evaluation_types": ["functional_similarity", "sequence_similarity", "compositional_similarity"]
-    },
-    "results": {
-        "functional_similarity": {
-            "conditional_generation_fidelity_mse": 0.123,
-            "frechet_distance": 45.67,
-            "predictive_distribution_shift_ks_statistic": 0.089
-        },
-        "sequence_similarity": {
-            "max_percent_identity_vs_test": 0.89,
-            "kmer_3_kullback_leibler_divergence": 0.045,
-            "sequence_diversity_mean_similarity": 0.67
-        },
-        "compositional_similarity": {
-            "motif_enrichment_pearson_r": 0.78,
-            "motif_cooccurrence_frobenius_norm": 12.3,
-            "attribution_consistency_score": 0.65
-        }
-    },
-    "metadata": {
-        "timestamp": "2024-01-15T10:30:00",
-        "config": {...}
-    }
-}
-```
-
-### File Outputs
-
-Results are saved in the specified output directory:
-
-- `full_evaluation_YYYY-MM-DD_HH-MM-SS.pkl`: Complete results (pickle format)
-- `full_evaluation_YYYY-MM-DD_HH-MM-SS.json`: Complete results (JSON format)  
-- Individual evaluator files (if `--save-individual` specified)
-
-## Extending the Pipeline
-
-### Adding New Evaluators
-
-1. Create a new evaluator class inheriting from `BaseEvaluator`:
-
-```python
-from src.evaluators.base_evaluator import BaseEvaluator
-
-class MyEvaluator(BaseEvaluator):
-    def __init__(self, config):
-        super().__init__(config, "my_evaluation")
-    
-    def get_required_inputs(self):
-        return {
-            "x_synthetic": "Generated sequences",
-            "x_test": "Test sequences"
-        }
-    
-    def evaluate(self, x_synthetic, x_test, **kwargs):
-        # Implement your evaluation logic
-        results = {"my_metric": 0.5}
-        self.update_results(results)
-        return results
-```
-
-2. Add to the pipeline in the main scripts
-
-### Adding New Model Types
-
-Extend `model_utils.py` to support additional oracle model types:
-
-```python
-def _load_my_model(self, model_path):
-    # Implementation for loading your model type
-    return model
-```
-
-## Examples
-
-### Example 1: DeepSTARR Evaluation
-
-```bash
-# Full pipeline with DeepSTARR data
-python scripts/run_full_pipeline.py \
-    --dataset deepstarr \
-    --samples-path generated_sequences.npz \
-    --output-dir results/deepstarr_eval/
-```
-
-### Example 2: Custom Evaluation
-
-```bash
-# Run only sequence similarity with custom batch size
-python scripts/run_single_evaluation.py sequence \
-    --samples-path samples.npz \
-    --dataset-path my_data.h5 \
-    --batch-size 8192 \
-    --output-dir results/
-```
-
-### Example 3: Programmatic Usage
-
-```python
-from src.evaluators.functional_similarity import FunctionalSimilarityEvaluator
-from src.data.data_utils import DataLoader
-from src.models.model_utils import load_oracle_model
-
-# Load data
-loader = DataLoader(config)
-x_test, x_synthetic, x_train = loader.extract_evaluation_data(
-    "samples.npz", "dataset.h5"
-)
-
-# Load model
-oracle = load_oracle_model("oracle.ckpt", "deepstarr")
-
-# Run evaluation
-evaluator = FunctionalSimilarityEvaluator(config)
-results = evaluator.evaluate(x_synthetic, x_test, oracle)
-print(results)
-```
-
-## Performance Considerations
-
-### Memory Usage
-
-- Large datasets may require smaller batch sizes
-- Use `--batch-size` to control memory usage
-- Attribution analysis is memory-intensive; consider reducing `attribution_max_samples`
-
-### Computational Requirements
-
-- Functional similarity: Requires GPU for oracle model inference
-- Sequence similarity: CPU-intensive for large datasets
-- Compositional similarity: Varies by motif database size
-
-### Optimization Tips
-
-- Use GPU when available (`--device cuda`)
-- Adjust batch sizes based on available memory
-- For large datasets, consider running evaluations separately
-- Use configuration files to avoid respecifying parameters
-
-## Troubleshooting
-
-### Common Issues
-
-1. **CUDA out of memory**: Reduce batch sizes or use CPU
-2. **Motif analysis fails**: Ensure motif database is in correct MEME format
-3. **Model loading fails**: Check model checkpoint compatibility
-4. **Import errors**: Install optional dependencies for specific analyses
-
-### Debug Mode
-
-Enable verbose logging for debugging:
-
-```bash
-python scripts/run_full_pipeline.py --verbose --log-file debug.log [other options]
-```
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Add tests for new functionality
-4. Submit a pull request
-
-## License
-
-MIT License - see LICENSE file for details.
-
-## Citation
-
-If you use this evaluation pipeline in your research, please cite:
-
-```
-@software{d3_evaluation_pipeline,
-  title={D3 Evaluation Pipeline: Comprehensive Assessment of Synthetic DNA Sequences},
-  author={D3 Analysis Team},
-  year={2024},
-  url={https://github.com/your-org/d3-analysis}
-}
-```
+## Package Fallback System
+
+The analysis pipeline uses an intelligent fallback system for motif analysis:
+
+1. **Primary**: Uses `memelite` functions (`motif_count_memelite`, `make_occurrence_matrix_memelite`)
+   - Faster, more modern implementation
+   - Same API as tangermeme but with memelite backend
+
+2. **Fallback**: Uses `pymemesuite` functions if memelite is unavailable
+   - Ensures compatibility when memelite can't be installed
+   - Original implementation preserved
+
+The fallback is automatic and transparent - no code changes needed.
+
+## Oracle Model Requirements
+
+Each test's dependency on the oracle model:
+
+| Test Name | Requires Oracle Model | Similarity Type | Script Location |
+|-----------|----------------------|-----------------|------------------|
+| **Conditional Generation Fidelity** | ✅ Yes | Functional | `core/functional/cond_gen_fidelity.py` |
+| **Fréchet Distance** | ✅ Yes | Functional | `core/functional/frechet_distance.py` |
+| **Predictive Distribution Shift** | ✅ Yes | Functional | `core/functional/predictive_dist_shift.py` |
+| **Percent Identity** | ❌ No | Sequence | `core/sequence/percent_identity.py` |
+| **k-mer Spectrum Shift** | ❌ No | Sequence | `core/sequence/kmer_spectrum_shift.py` |
+| **Discriminability** | ❌ No* | Sequence | `core/sequence/discriminability.py` |
+| **Motif Enrichment** | ❌ No* | Compositional | `core/compositional/motif_enrichment.py` |
+| **Motif Co-occurrence** | ❌ No* | Compositional | `core/compositional/motif_cooccurrence.py` |
+| **Attribution Consistency** | ✅ Yes | Compositional | `core/compositional/attribution_consistency.py` |
+
+*Discriminability trains its own binary classifier, so it doesn't require the oracle model.
+
+**Motif tests require a motif database file (defaults to JASPAR2024_CORE_non-redundant_pfms_meme.txt, can be customized with `--motif-db`).
+
+### Tests Requiring Oracle Model (4/9)
+These tests need the trained DeepSTARR model to compute predictions or embeddings:
+- Conditional Generation Fidelity
+- Fréchet Distance  
+- Predictive Distribution Shift
+- Attribution Consistency
+
+### Tests Not Requiring Oracle Model (5/9)
+These tests work directly with sequence data:
+- Percent Identity
+- k-mer Spectrum Shift
+- Discriminability (uses own classifier)
+- Motif Enrichment
+- Motif Co-occurrence
