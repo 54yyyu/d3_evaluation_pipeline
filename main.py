@@ -459,6 +459,8 @@ def main():
                             print(f"  {key}: {value.item():.6f}")
                         else:  # numpy arrays
                             print(f"  {key}: Array with shape {value.shape}")
+                    elif isinstance(value, str):
+                        print(f"  {key}: {value}")
                     else:
                         print(f"  {key}: {type(value).__name__}")
     
@@ -490,14 +492,12 @@ def run_single_modular_test(test_name, data, output_dir, all_results, completed_
         elif test_name == 'discriminability':
             # Check if discriminability data exists, if not create it first
             discriminability_file = 'Discriminatability.h5'
-            if not os.path.exists(discriminability_file):
-                print("Discriminability data not found. Creating it from existing data...")
-                from core.sequence.discriminability import prep_data_for_classification
-                from utils.helpers import write_to_h5
-                data_dict = prep_data_for_classification(
-                    data['x_test_tensor'], data['x_synthetic_tensor'])
-                write_to_h5(discriminability_file, data_dict)
-                print(f"Created discriminability data: {discriminability_file}")
+            from core.sequence.discriminability import prep_data_for_classification
+            from utils.helpers import write_to_h5
+            data_dict = prep_data_for_classification(
+                data['x_test_tensor'], data['x_synthetic_tensor'])
+            write_to_h5(discriminability_file, data_dict)
+            print(f"Created discriminability data: {discriminability_file}")
             results = run_discriminability_analysis_modular(
                 output_dir=output_dir, h5_file=discriminability_file)
         elif test_name == 'motif_enrichment':
