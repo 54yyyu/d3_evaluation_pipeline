@@ -144,7 +144,8 @@ def write_concise_csv(output_dir, analysis_name, sample_name, metric_values):
             else:
                 df.loc[metric_name, sample_name] = value
     
-    # Save CSV
+    # Save CSV without index name to avoid extra comma
+    df.index.name = None
     df.to_csv(csv_path)
     print(f"Concise metrics saved to: {csv_path}")
 
