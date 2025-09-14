@@ -41,40 +41,6 @@ def prep_data_for_classification(x_test_tensor, x_synthetic_tensor):
     return data_dict
 
 
-# class BinaryDeepSTARR(nn.Module):
-#     """
-#     Binary classification version of DeepSTARR for discriminability analysis.
-    
-#     Uses the same CNN architecture as DeepSTARR but with a single output neuron
-#     for binary classification (real vs synthetic sequences).
-#     """
-    
-#     def __init__(self, d=256,
-#                  conv1_filters=None, learn_conv1_filters=True,
-#                  conv2_filters=None, learn_conv2_filters=True,
-#                  conv3_filters=None, learn_conv3_filters=True,
-#                  conv4_filters=None, learn_conv4_filters=True):
-#         super().__init__()
-        
-#         # Use the base DeepSTARR architecture with single output
-#         self.deepstarr = DeepSTARR(
-#             output_dim=1,  # Single output for binary classification
-#             d=d,
-#             conv1_filters=conv1_filters,
-#             learn_conv1_filters=learn_conv1_filters,
-#             conv2_filters=conv2_filters,
-#             learn_conv2_filters=learn_conv2_filters,
-#             conv3_filters=conv3_filters,
-#             learn_conv3_filters=learn_conv3_filters,
-#             conv4_filters=conv4_filters,
-#             learn_conv4_filters=learn_conv4_filters
-#         )
-        
-#     def forward(self, x):
-#         # Get output from DeepSTARR and apply sigmoid for binary classification
-#         logits = self.deepstarr(x)
-#         return logits  # Return logits (use BCEWithLogitsLoss for numerical stability)
-
 class CNN(nn.Module):
     def __init__(self, output_dim):
         super().__init__()
@@ -149,7 +115,7 @@ class CNN(nn.Module):
         
         return y_pred
 
-class PL_BinaryDeepSTARR(pl.LightningModule):
+class PL_CNN(pl.LightningModule):
     """
     PyTorch Lightning module for binary DeepSTARR classifier.
     
@@ -182,9 +148,7 @@ class PL_BinaryDeepSTARR(pl.LightningModule):
         self.input_h5_file = input_h5_file
         
         # Initialize binary classifier
-        # self.model = BinaryDeepSTARR(output_dim=1)
         self.model = CNN(output_dim=1)
-        # self.name = 'BinaryDeepSTARR'
         self.name = 'CNN'
         
         # Load data
@@ -339,7 +303,7 @@ def train_discriminability_classifier(h5_file='Discriminatability.h5',
         raise FileNotFoundError(f"Discriminability data file not found: {h5_file}")
     
     # Initialize model
-    model = PL_BinaryDeepSTARR(input_h5_file=h5_file)
+    model = PL_CNN(input_h5_file=h5_file)
     
     if verbose:
         print(f"Loaded {len(model.X_train)} total samples")
