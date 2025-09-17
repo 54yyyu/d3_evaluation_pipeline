@@ -54,8 +54,9 @@ def discover_batch_samples(batch_dir, csv_filename="metadata.csv"):
         for subdir in sorted(subdirs):
             subdir_npz = list(subdir.glob("*.npz"))
             if subdir_npz:
-                sample_name = subdir.name
                 for npz_file in sorted(subdir_npz):
+                    # Create unique sample name using subfolder and filename
+                    sample_name = f"{subdir.name}_{npz_file.stem}"
                     samples.append({
                         'sample_name': sample_name,
                         'file_path': str(npz_file.relative_to(batch_dir)),
@@ -130,19 +131,7 @@ def write_concise_csv(output_dir, analysis_name, sample_name, metric_values):
     
     # Add metrics for this sample
     for metric_name, value in metric_values.items():
-        if metric_name not in df.index:
-            df.loc[metric_name, sample_name] = value
-        else:
-            # For multiple data points per sample (nested structure)
-            if sample_name in df.columns:
-                # Convert to list if not already
-                current_val = df.loc[metric_name, sample_name]
-                if not isinstance(current_val, list):
-                    current_val = [current_val] if not pd.isna(current_val) else []
-                current_val.append(value)
-                df.loc[metric_name, sample_name] = current_val
-            else:
-                df.loc[metric_name, sample_name] = value
+        df.loc[metric_name, sample_name] = value
     
     # Save CSV without index name to avoid extra comma
     df.index.name = None

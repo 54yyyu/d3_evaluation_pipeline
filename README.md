@@ -5,18 +5,29 @@ This reorganized analysis pipeline provides a unified interface to run all seque
 ## Structure
 
 ```
-analysis/
-├── main.py                    # Main runner script
-├── core/                      # Core analysis modules
-│   ├── attribution_analysis.py
-│   ├── functional_similarity.py
-│   └── motif_analysis.py
-├── utils/                     # Utility functions
-│   ├── helpers.py
-│   └── seq_evals_func_motifs.py
-└── training/                  # Training scripts (separated)
-    ├── EvoAug_run_train.py
-    └── finetune_run_train.py
+evaluation_pipeline/
+├── main.py                           # Main runner script with batch support
+├── deepstarr.py                      # DeepSTARR model architecture
+├── core/                             # Modular analysis components
+│   ├── functional/                   # Functional similarity analyses
+│   │   ├── cond_gen_fidelity.py      # Conditional generation fidelity
+│   │   ├── frechet_distance.py       # Fréchet distance analysis
+│   │   └── predictive_dist_shift.py  # Predictive distribution shift
+│   ├── sequence/                     # Sequence similarity analyses  
+│   │   ├── discriminability.py       # Binary classification AUROC
+│   │   ├── kmer_spectrum_shift.py    # k-mer frequency analysis
+│   │   └── percent_identity.py       # Normalized Hamming distance
+│   └── compositional/                # Compositional similarity analyses
+│       ├── attribution_consistency.py # Attribution pattern analysis
+│       ├── motif_cooccurrence.py     # Motif co-occurrence patterns
+│       └── motif_enrichment.py       # Motif content analysis
+├── utils/                            # Utility functions
+│   ├── batch_helpers.py              # Batch processing utilities (NEW!)
+│   ├── helpers.py                    # Data loading and processing
+│   └── seq_evals_func_motifs.py      # Motif analysis functions
+└── training/                         # Training scripts (separated)
+    ├── EvoAug_run_train.py           # EvoAug training
+    └── finetune_run_train.py         # Fine-tuning training
 ```
 
 ## Usage
@@ -37,7 +48,7 @@ python main.py --test cond_gen_fidelity --samples samples.npz --data DeepSTARR_d
 python main.py --test "cond_gen_fidelity,frechet_distance" --samples samples.npz --data DeepSTARR_data.h5 --model oracle_DeepSTARR_DeepSTARR_data.ckpt
 ```
 
-### Batch Mode (NEW!)
+### Batch Mode
 
 Process multiple samples at once with organized CSV and HDF5 outputs:
 

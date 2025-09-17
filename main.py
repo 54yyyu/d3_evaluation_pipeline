@@ -365,11 +365,10 @@ def run_single_batch_test(test_name, deepstarr, x_test_tensor, x_synthetic_tenso
     elif test_name == 'discriminability':
         # Check if discriminability data exists, if not create it first
         discriminability_file = f'Discriminatability_{sample_name}.h5'
-        if not os.path.exists(discriminability_file):
-            from core.sequence.discriminability import prep_data_for_classification
-            from utils.helpers import write_to_h5
-            data_dict = prep_data_for_classification(x_test_tensor, x_synthetic_tensor)
-            write_to_h5(discriminability_file, data_dict)
+        from core.sequence.discriminability import prep_data_for_classification
+        from utils.helpers import write_to_h5
+        data_dict = prep_data_for_classification(x_test_tensor, x_synthetic_tensor)
+        write_to_h5(discriminability_file, data_dict)
         run_discriminability_analysis_modular(
             output_dir=output_dir, h5_file=discriminability_file, sample_name=sample_name)
     elif test_name == 'motif_enrichment':
