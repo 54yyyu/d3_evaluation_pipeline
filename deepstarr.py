@@ -12,13 +12,28 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-import pytorch_lightning as pl
+try:
+    import pytorch_lightning as pl
+    from pytorch_lightning import loggers as pl_loggers
+    LIGHTNING_AVAILABLE = True
+except ImportError:
+    try:
+        import lightning.pytorch as pl
+        from lightning.pytorch import loggers as pl_loggers
+        LIGHTNING_AVAILABLE = True
+    except ImportError:
+        LIGHTNING_AVAILABLE = False
+        # Create dummy pl object for when lightning is not available
+        class DummyLightningModule:
+            pass
+        pl = type('pl', (), {'LightningModule': DummyLightningModule, 'loggers': type('loggers', (), {})()})
+        pl_loggers = pl.loggers
+
 import numpy as np
 import random
 import h5py
 import os
 from scipy import stats
-from pytorch_lightning import loggers as pl_loggers
 import tqdm
 from filelock import FileLock
 from typing import Any, Dict, Optional

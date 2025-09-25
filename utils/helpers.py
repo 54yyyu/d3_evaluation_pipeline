@@ -6,7 +6,6 @@ import torch
 import tqdm as tqdm_module
 import os
 
-from pytorch_lightning import LightningModule
 from deepstarr import *
 from mpralegnet import LitModel
 
@@ -245,11 +244,18 @@ def load_deepstarr(oracle_path):
 
 def load_mpralegnet(oracle_path):
     """Load MPRALegNet model from checkpoint."""
-    #load model
-    ckpt_path = oracle_path
-    mpralegnet = LitModel.load_from_checkpoint(ckpt_path).eval()
-
-    return mpralegnet
+    try:
+        #load model
+        ckpt_path = oracle_path
+        mpralegnet = LitModel.load_from_checkpoint(ckpt_path).eval()
+        return mpralegnet
+    except Exception as e:
+        if "lightning" in str(e).lower():
+            raise ImportError(
+                "PyTorch Lightning is required to load MPRALegNet models. "
+                "Please install with: pip install lightning or pytorch-lightning"
+            ) from e
+        raise
 
 def load_oracle_model(oracle_path, model_type='deepstarr'):
     """Load oracle model based on model type."""

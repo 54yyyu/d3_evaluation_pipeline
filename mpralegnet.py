@@ -8,7 +8,23 @@ Combines model architecture, data loading, training, and prediction functionalit
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import lightning.pytorch as pl
+try:
+    import lightning.pytorch as pl
+    from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping, LearningRateMonitor
+    LIGHTNING_AVAILABLE = True
+except ImportError:
+    try:
+        import pytorch_lightning as pl
+        from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping, LearningRateMonitor
+        LIGHTNING_AVAILABLE = True
+    except ImportError:
+        LIGHTNING_AVAILABLE = False
+        # Create dummy pl object for when lightning is not available
+        class DummyLightningModule:
+            pass
+        pl = type('pl', (), {'LightningModule': DummyLightningModule})
+        ModelCheckpoint = EarlyStopping = LearningRateMonitor = None
+
 from torchmetrics import PearsonCorrCoef
 from torch.utils.data import Dataset, DataLoader
 import json
@@ -20,7 +36,6 @@ import h5py
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Optional, List, Union, Tuple
-from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping, LearningRateMonitor
 import tqdm
 
 
@@ -797,7 +812,7 @@ class LitModel(pl.LightningModule):
 def train_model(config, train_dataloader=None, val_dataloader=None, data_file=None, data_format='h5', verbose=False):
     """
     Train MPRA LegNet model.
-    
+
     Args:
         config: TrainingConfig object
         train_dataloader: Training data loader (optional, will be created if None)
@@ -805,10 +820,12 @@ def train_model(config, train_dataloader=None, val_dataloader=None, data_file=No
         data_file: Path to data file (used if dataloaders not provided)
         data_format: Data format ('h5' or 'tsv')
         verbose: Whether to print verbose output
-        
+
     Returns:
         Tuple of (model, trainer, best_model_path)
     """
+    if not LIGHTNING_AVAILABLE:
+        raise ImportError("PyTorch Lightning is required for training. Please install with: pip install lightning")
     # Set random seed
     set_global_seed(config.seed)
     

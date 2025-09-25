@@ -17,9 +17,25 @@ import h5py
 import os
 import random
 from tqdm import tqdm
-import pytorch_lightning as pl
-from pytorch_lightning import loggers as pl_loggers
-from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
+try:
+    import pytorch_lightning as pl
+    from pytorch_lightning import loggers as pl_loggers
+    from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
+    LIGHTNING_AVAILABLE = True
+except ImportError:
+    try:
+        import lightning.pytorch as pl
+        from lightning.pytorch import loggers as pl_loggers
+        from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping
+        LIGHTNING_AVAILABLE = True
+    except ImportError:
+        LIGHTNING_AVAILABLE = False
+        # Create dummy objects for when lightning is not available
+        class DummyLightningModule:
+            pass
+        pl = type('pl', (), {'LightningModule': DummyLightningModule, 'loggers': type('loggers', (), {})()})
+        pl_loggers = pl.loggers
+        ModelCheckpoint = EarlyStopping = None
 
 # Import the base DeepSTARR architecture
 import sys

@@ -3,8 +3,22 @@ from numpy import load
 import h5py
 import pandas as pd
 import torch
-import lightning as L
-from pytorch_lightning import LightningModule
+try:
+    import lightning as L
+    from pytorch_lightning import LightningModule
+    LIGHTNING_AVAILABLE = True
+except ImportError:
+    try:
+        import pytorch_lightning as L
+        from pytorch_lightning import LightningModule
+        LIGHTNING_AVAILABLE = True
+    except ImportError:
+        LIGHTNING_AVAILABLE = False
+        # Create dummy objects for when lightning is not available
+        class DummyLightningModule:
+            pass
+        L = type('L', (), {})()
+        LightningModule = DummyLightningModule
 from scipy import linalg
 import scipy
 from tqdm import tqdm
