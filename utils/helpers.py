@@ -8,6 +8,7 @@ import tqdm as tqdm_module
 
 from pytorch_lightning import LightningModule
 from deepstarr import *
+from mpralegnet import LitModel
 
 
 class EmbeddingExtractor:
@@ -17,8 +18,9 @@ class EmbeddingExtractor:
     def hook(self, module, input, output):
         self.embedding = output.detach()
 
-def extract_data(samples_file_path, deepSTARR_data):
-   #load samples from .npz file
+def extract_data(samples_file_path, data_file):
+    """Extract data for deepstarr (legacy function)."""
+    #load samples from .npz file
     data = load(samples_file_path)
     samples = []
     lst = data.files
@@ -26,7 +28,7 @@ def extract_data(samples_file_path, deepSTARR_data):
         samples.append(data[item])
 
     #load in data
-    with h5py.File(deepSTARR_data, 'r') as f:
+    with h5py.File(data_file, 'r') as f:
         # Access the data for the specific X_test key
         x_test = f['X_test'][()]
         x_train = f['X_train'][()]
@@ -36,44 +38,115 @@ def extract_data(samples_file_path, deepSTARR_data):
 
     return x_test, x_synthetic, x_train
 
+def extract_lentimpra_data(samples_file_path, lentimpra_data):
+    """Extract data for lentimpra with 230-length sequences."""
+    #load samples from .npz file
+    data = load(samples_file_path)
+    samples = []
+    lst = data.files
+    for item in lst:
+        samples.append(data[item])
+
+    #load in data
+    with h5py.File(lentimpra_data, 'r') as f:
+        # Access the data for lentimpra format
+        # Assuming similar structure but with onehot_test and onehot_train
+        if 'onehot_test' in f.keys():
+            x_test = f['onehot_test'][()]  # shape: (n, 230, 4)
+            x_test = np.transpose(x_test, (0, 2, 1))  # Convert to (n, 4, 230)
+        elif 'X_test' in f.keys():
+            x_test = f['X_test'][()]
+        else:
+            raise KeyError("Could not find test data in lentimpra file")
+
+        if 'onehot_train' in f.keys():
+            x_train = f['onehot_train'][()]  # shape: (n, 230, 4)
+            x_train = np.transpose(x_train, (0, 2, 1))  # Convert to (n, 4, 230)
+        elif 'X_train' in f.keys():
+            x_train = f['X_train'][()]
+        else:
+            raise KeyError("Could not find training data in lentimpra file")
+
+    # Handle samples - they should be 230 length for lentimpra
+    if samples[0].shape[-1] == 230:
+        # Already correct length: (n, 4, 230)
+        x_synthetic = samples[0]
+    else:
+        # If they come in different format, transpose: (n, 230, 4) -> (n, 4, 230)
+        x_synthetic = np.transpose(samples[0], (0, 2, 1))
+
+    return x_test, x_synthetic, x_train
+
 def numpy_to_tensor(array):
     return torch.from_numpy(array).float()
 
 def load_deepstarr(oracle_path):
-    
+    """Load DeepSTARR model from checkpoint."""
     #load model
     ckpt_aug_path = oracle_path
     deepstarr = PL_DeepSTARR.load_from_checkpoint(ckpt_aug_path).eval()
 
     return deepstarr
 
-def load_predictions(x_test_tensor, x_synthetic_tensor, deepstarr):
+def load_mpralegnet(oracle_path):
+    """Load MPRALegNet model from checkpoint."""
+    #load model
+    ckpt_path = oracle_path
+    mpralegnet = LitModel.load_from_checkpoint(ckpt_path).eval()
+
+    return mpralegnet
+
+def load_oracle_model(oracle_path, model_type='deepstarr'):
+    """Load oracle model based on model type."""
+    if model_type.lower() == 'deepstarr':
+        return load_deepstarr(oracle_path)
+    elif model_type.lower() in ['mpralegnet', 'lentimpra']:
+        return load_mpralegnet(oracle_path)
+    else:
+        raise ValueError(f"Unsupported model type: {model_type}")
+
+def load_predictions(x_test_tensor, x_synthetic_tensor, oracle_model):
+    """Load predictions from oracle model (works with both DeepSTARR and MPRALegNet)."""
     # Ensure tensors are on the same device as the model
-    device = next(deepstarr.parameters()).device
+    device = next(oracle_model.parameters()).device
     x_test_tensor = x_test_tensor.to(device)
     x_synthetic_tensor = x_synthetic_tensor.to(device)
 
     #run model predictions
-    y_hat_test = deepstarr(x_test_tensor)
-    y_hat_syn = deepstarr(x_synthetic_tensor)
+    y_hat_test = oracle_model(x_test_tensor)
+    y_hat_syn = oracle_model(x_synthetic_tensor)
 
-    #returns numpy arrays of deepstarr predictions from samples and x test
+    #returns numpy arrays of oracle predictions from samples and x test
     return y_hat_test.detach().cpu().numpy(), y_hat_syn.detach().cpu().numpy()
+
+def load_predictions_deepstarr(x_test_tensor, x_synthetic_tensor, deepstarr):
+    """Legacy function - use load_predictions instead."""
+    return load_predictions(x_test_tensor, x_synthetic_tensor, deepstarr)
 
 
 extractor = EmbeddingExtractor()
-def get_penultimate_embeddings(model, x):
+def get_penultimate_embeddings(model, x, model_type='deepstarr'):
+    """Get penultimate embeddings from model (works with both DeepSTARR and MPRALegNet)."""
     # Ensure tensor is on the same device as the model
     device = next(model.parameters()).device
     x = x.to(device)
-    
+
+    # Find the penultimate layer based on model type
+    if model_type.lower() == 'deepstarr':
+        target_layer = 'model.batchnorm6'
+    elif model_type.lower() in ['mpralegnet', 'lentimpra']:
+        # For MPRALegNet, hook into the last layer before output
+        target_layer = 'model.head.2'  # This is the activation before final linear layer
+    else:
+        raise ValueError(f"Unsupported model type: {model_type}")
+
     # Find the penultimate layer
     for name, module in model.named_modules():
-        if name == 'model.batchnorm6':
+        if name == target_layer:
             handle = module.register_forward_hook(extractor.hook)
             break
     else:
-        raise ValueError("Could not find 'model.batchnorm6' layer")
+        raise ValueError(f"Could not find '{target_layer}' layer in {model_type} model")
 
     # Forward pass
     with torch.no_grad():

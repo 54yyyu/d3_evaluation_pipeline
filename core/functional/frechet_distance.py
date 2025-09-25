@@ -40,30 +40,31 @@ def calculate_frechet_distance(mu1, sigma1, mu2, sigma2, eps=1e-6):
     
     return diff.dot(diff) + np.trace(sigma1) + np.trace(sigma2) - 2 * tr_covmean
 
-def run_frechet_distance_analysis(deepstarr, x_test_tensor, x_synthetic_tensor, output_dir=".", sample_name=None):
+def run_frechet_distance_analysis(oracle_model, x_test_tensor, x_synthetic_tensor, output_dir=".", sample_name=None, model_type='deepstarr'):
     """
     Run Fréchet distance analysis.
-    
+
     Compares the distribution of oracle-predicted embeddings between real and generated sequences.
     Lower values indicate closer alignment in oracle embedding space.
-    
+
     Args:
-        deepstarr: The DeepSTARR oracle model
+        oracle_model: The oracle model (DeepSTARR or MPRALegNet)
         x_test_tensor: Test sequences tensor
         x_synthetic_tensor: Synthetic sequences tensor
         output_dir: Directory to save results
         sample_name: Name of sample for batch processing (optional)
-        
+        model_type: Type of model ('deepstarr', 'mpralegnet', 'lentimpra')
+
     Returns:
         dict: Results dictionary with Fréchet distance
     """
     from utils.helpers import get_penultimate_embeddings
-    
+
     current_date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    
+
     print("Extracting embeddings for Fréchet distance...")
-    embeddings1 = get_penultimate_embeddings(deepstarr, x_test_tensor)
-    embeddings2 = get_penultimate_embeddings(deepstarr, x_synthetic_tensor)
+    embeddings1 = get_penultimate_embeddings(oracle_model, x_test_tensor, model_type)
+    embeddings2 = get_penultimate_embeddings(oracle_model, x_synthetic_tensor, model_type)
     
     print("Computing activation statistics...")
     mu1, sigma1 = calculate_activation_statistics(embeddings1)

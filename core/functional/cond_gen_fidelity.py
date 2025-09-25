@@ -7,20 +7,20 @@ def conditional_generation_fidelity(activity1, activity2):
     """Compute MSE between predicted activities."""
     return np.mean((activity1 - activity2)**2)
 
-def run_conditional_generation_fidelity_analysis(deepstarr, x_test_tensor, x_synthetic_tensor, output_dir=".", sample_name=None):
+def run_conditional_generation_fidelity_analysis(oracle_model, x_test_tensor, x_synthetic_tensor, output_dir=".", sample_name=None):
     """
     Run conditional generation fidelity analysis.
-    
+
     Measures how well generated sequences achieve functional activities similar to real sequences
     by computing MSE between oracle predictions.
-    
+
     Args:
-        deepstarr: The DeepSTARR oracle model
-        x_test_tensor: Test sequences tensor  
+        oracle_model: The oracle model (DeepSTARR or MPRALegNet)
+        x_test_tensor: Test sequences tensor
         x_synthetic_tensor: Synthetic sequences tensor
         output_dir: Directory to save results
         sample_name: Name of sample for batch processing (optional)
-        
+
     Returns:
         dict: Results dictionary with fidelity MSE
     """
@@ -29,7 +29,7 @@ def run_conditional_generation_fidelity_analysis(deepstarr, x_test_tensor, x_syn
     current_date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     
     print("Computing model predictions for fidelity analysis...")
-    y_hat_test, y_hat_syn = load_predictions(x_test_tensor, x_synthetic_tensor, deepstarr)
+    y_hat_test, y_hat_syn = load_predictions(x_test_tensor, x_synthetic_tensor, oracle_model)
     mse = conditional_generation_fidelity(y_hat_syn, y_hat_test)
     
     results = {

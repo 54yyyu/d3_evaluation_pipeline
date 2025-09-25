@@ -28,7 +28,7 @@ import json
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from deepstarr import PL_DeepSTARR
-from utils.helpers import extract_data, numpy_to_tensor, load_deepstarr
+from utils.helpers import extract_data, extract_lentimpra_data, numpy_to_tensor, load_deepstarr, load_oracle_model
 # Legacy imports removed - using only modular imports now
 
 # New modular imports
@@ -55,13 +55,18 @@ def parse_arguments():
                        help='Path to directory containing multiple NPZ files for batch processing')
     
     parser.add_argument('--data', type=str,
-                       default=os.getenv('DATA_FILE', 'DeepSTARR_data.h5'), 
-                       help='Path to DeepSTARR data H5 file')
-    
+                       default=os.getenv('DATA_FILE', 'DeepSTARR_data.h5'),
+                       help='Path to data H5 file (DeepSTARR_data.h5 or lentimpra_data.h5)')
+
     parser.add_argument('--model', type=str,
                        default=os.getenv('MODEL_FILE', 'oracle_DeepSTARR_DeepSTARR_data.ckpt'),
                        help='Path to model checkpoint file')
-    
+
+    parser.add_argument('--model-type', type=str,
+                       default=os.getenv('MODEL_TYPE', 'deepstarr'),
+                       choices=['deepstarr', 'mpralegnet', 'lentimpra'],
+                       help='Type of oracle model (deepstarr, mpralegnet, or lentimpra)')
+
     parser.add_argument('--output-dir', type=str,
                        default=os.getenv('OUTPUT_DIR', 'results'),
                        help='Output directory for results')
@@ -181,37 +186,48 @@ def print_analysis_summary(analysis_name, results):
 
 def load_data_and_model(args):
     """Load all required data and model."""
-    print("Loading data and model...")
-    
-    # Load data
-    x_test, x_synthetic, x_train = extract_data(args.samples, args.data)
-    
+    print(f"Loading data and model (model type: {args.model_type})...")
+
+    # Load data based on model type
+    if args.model_type.lower() in ['mpralegnet', 'lentimpra']:
+        x_test, x_synthetic, x_train = extract_lentimpra_data(args.samples, args.data)
+    else:
+        x_test, x_synthetic, x_train = extract_data(args.samples, args.data)
+
     # Convert to tensors
     x_test_tensor = numpy_to_tensor(x_test)
     x_synthetic_tensor = numpy_to_tensor(x_synthetic)
     x_train_tensor = numpy_to_tensor(x_train)
-    
-    # Load model
-    deepstarr = load_deepstarr(args.model)
-    
+
+    # Load oracle model
+    oracle_model = load_oracle_model(args.model, args.model_type)
+
     # Load sample sequences for attribution analysis
     samples = np.load(args.samples)
     sample_seqs = samples['arr_0']
     sample_seqs = torch.tensor(sample_seqs, dtype=torch.float32)
-    
+
     # Load test data for attribution analysis
-    DeepSTARR_data = h5py.File(args.data, 'r')
-    X_test = torch.tensor(np.array(DeepSTARR_data['X_test']).transpose(0,2,1), dtype=torch.float32)
-    
+    data_file = h5py.File(args.data, 'r')
+    if args.model_type.lower() in ['mpralegnet', 'lentimpra']:
+        if 'onehot_test' in data_file.keys():
+            X_test = torch.tensor(np.array(data_file['onehot_test']).transpose(0,2,1), dtype=torch.float32)
+        else:
+            X_test = torch.tensor(np.array(data_file['X_test']).transpose(0,2,1), dtype=torch.float32)
+    else:
+        X_test = torch.tensor(np.array(data_file['X_test']).transpose(0,2,1), dtype=torch.float32)
+    data_file.close()
+
     print(f"Loaded {len(x_test)} test sequences")
-    print(f"Loaded {len(x_synthetic)} synthetic sequences") 
+    print(f"Loaded {len(x_synthetic)} synthetic sequences")
     print(f"Loaded {len(x_train)} training sequences")
     print(f"Loaded {len(sample_seqs)} sample sequences")
-    
+
     return {
-        'deepstarr': deepstarr,
+        'oracle_model': oracle_model,
+        'model_type': args.model_type,
         'x_test_tensor': x_test_tensor,
-        'x_synthetic_tensor': x_synthetic_tensor, 
+        'x_synthetic_tensor': x_synthetic_tensor,
         'x_train_tensor': x_train_tensor,
         'sample_seqs': sample_seqs,
         'X_test': X_test
@@ -221,7 +237,7 @@ def load_data_and_model(args):
 def run_batch_analysis(args):
     """Run analysis in batch mode on multiple NPZ files."""
     from utils.batch_helpers import discover_batch_samples, load_batch_sample
-    from utils.helpers import extract_data, numpy_to_tensor, load_deepstarr
+    from utils.helpers import extract_data, numpy_to_tensor, load_oracle_model
     
     print("=== D3 Sequence Analysis Pipeline - Batch Mode ===")
     
@@ -250,14 +266,27 @@ def run_batch_analysis(args):
     print(f"Results will be saved to: {output_dir}")
     
     # Load model and test data once (they're shared across all samples)
-    print("Loading model and test data...")
-    deepstarr = load_deepstarr(args.model)
-    
-    # Load test and training data from the data file
+    print(f"Loading model and test data (model type: {args.model_type})...")
+    oracle_model = load_oracle_model(args.model, args.model_type)
+
+    # Load test and training data from the data file based on model type
     with h5py.File(args.data, 'r') as f:
-        x_test = f['X_test'][()]
-        x_train = f['X_train'][()]
-    
+        if args.model_type.lower() in ['mpralegnet', 'lentimpra']:
+            if 'onehot_test' in f.keys():
+                x_test = f['onehot_test'][()]
+                x_test = np.transpose(x_test, (0, 2, 1))  # Convert to (n, 4, 230)
+            else:
+                x_test = f['X_test'][()]
+
+            if 'onehot_train' in f.keys():
+                x_train = f['onehot_train'][()]
+                x_train = np.transpose(x_train, (0, 2, 1))  # Convert to (n, 4, 230)
+            else:
+                x_train = f['X_train'][()]
+        else:
+            x_test = f['X_test'][()]
+            x_train = f['X_train'][()]
+
     x_test_tensor = numpy_to_tensor(x_test)
     x_train_tensor = numpy_to_tensor(x_train)
     
@@ -332,7 +361,7 @@ def run_batch_analysis(args):
         for j, test_name in enumerate(test_list, 1):
             print(f"  [{j}/{len(test_list)}] Running {test_name.replace('_', ' ').title()}...")
             try:
-                run_single_batch_test(test_name, deepstarr, x_test_tensor, x_synthetic_tensor, 
+                run_single_batch_test(test_name, oracle_model, args.model_type, x_test_tensor, x_synthetic_tensor,
                                      x_train_tensor, sample_seqs, X_test, output_dir, sample_name, args.motif_db)
             except Exception as e:
                 import traceback
@@ -344,18 +373,18 @@ def run_batch_analysis(args):
     print(f"Check CSV files for concise metrics and H5 files for detailed results")
 
 
-def run_single_batch_test(test_name, deepstarr, x_test_tensor, x_synthetic_tensor, 
+def run_single_batch_test(test_name, oracle_model, model_type, x_test_tensor, x_synthetic_tensor,
                          x_train_tensor, sample_seqs, X_test, output_dir, sample_name, motif_db_path):
     """Run a single test for batch mode."""
     if test_name == 'cond_gen_fidelity':
         run_conditional_generation_fidelity_analysis(
-            deepstarr, x_test_tensor, x_synthetic_tensor, output_dir, sample_name)
+            oracle_model, x_test_tensor, x_synthetic_tensor, output_dir, sample_name)
     elif test_name == 'frechet_distance':
         run_frechet_distance_analysis(
-            deepstarr, x_test_tensor, x_synthetic_tensor, output_dir, sample_name)
+            oracle_model, x_test_tensor, x_synthetic_tensor, output_dir, sample_name)
     elif test_name == 'predictive_dist_shift':
         run_predictive_distribution_shift_analysis(
-            deepstarr, x_test_tensor, x_synthetic_tensor, output_dir, sample_name)
+            oracle_model, x_test_tensor, x_synthetic_tensor, output_dir, sample_name)
     elif test_name == 'percent_identity':
         run_percent_identity_analysis(
             x_synthetic_tensor, x_train_tensor, output_dir, sample_name)
@@ -379,7 +408,7 @@ def run_single_batch_test(test_name, deepstarr, x_test_tensor, x_synthetic_tenso
             x_test_tensor, x_synthetic_tensor, output_dir, motif_db_path, sample_name)
     elif test_name == 'attribution_consistency':
         run_attribution_consistency_analysis_modular(
-            deepstarr, sample_seqs, X_test, output_dir, sample_name)
+            oracle_model, sample_seqs, X_test, output_dir, sample_name, model_type=model_type)
 
 
 def main():
@@ -475,13 +504,13 @@ def run_single_modular_test(test_name, data, output_dir, all_results, completed_
     try:
         if test_name == 'cond_gen_fidelity':
             results = run_conditional_generation_fidelity_analysis(
-                data['deepstarr'], data['x_test_tensor'], data['x_synthetic_tensor'], output_dir)
+                data['oracle_model'], data['x_test_tensor'], data['x_synthetic_tensor'], output_dir)
         elif test_name == 'frechet_distance':
             results = run_frechet_distance_analysis(
-                data['deepstarr'], data['x_test_tensor'], data['x_synthetic_tensor'], output_dir)
+                data['oracle_model'], data['x_test_tensor'], data['x_synthetic_tensor'], output_dir)
         elif test_name == 'predictive_dist_shift':
             results = run_predictive_distribution_shift_analysis(
-                data['deepstarr'], data['x_test_tensor'], data['x_synthetic_tensor'], output_dir)
+                data['oracle_model'], data['x_test_tensor'], data['x_synthetic_tensor'], output_dir)
         elif test_name == 'percent_identity':
             results = run_percent_identity_analysis(
                 data['x_synthetic_tensor'], data['x_train_tensor'], output_dir)
@@ -507,7 +536,8 @@ def run_single_modular_test(test_name, data, output_dir, all_results, completed_
                 data['x_test_tensor'], data['x_synthetic_tensor'], output_dir, motif_db_path)
         elif test_name == 'attribution_consistency':
             results = run_attribution_consistency_analysis_modular(
-                data['deepstarr'], data['sample_seqs'], data['X_test'], output_dir)
+                data['oracle_model'], data['sample_seqs'], data['X_test'], output_dir,
+                model_type=data['model_type'])
         
         all_results[test_name] = results
         completed_analyses.append(test_name)
