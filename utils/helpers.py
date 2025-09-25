@@ -3,7 +3,6 @@ from numpy import load
 import h5py
 import pandas as pd
 import torch
-import lightning as L
 import tqdm as tqdm_module
 import os
 
