@@ -245,16 +245,28 @@ def load_deepstarr(oracle_path):
 def load_mpralegnet(oracle_path):
     """Load MPRALegNet model from checkpoint."""
     try:
-        #load model
-        ckpt_path = oracle_path
-        mpralegnet = LitModel.load_from_checkpoint(ckpt_path).eval()
-        return mpralegnet
+        from mpralegnet import load_model
+        # Use the proper load_model function that handles tr_cfg correctly
+        model, config = load_model(oracle_path)
+        return model
     except Exception as e:
         if "lightning" in str(e).lower():
             raise ImportError(
                 "PyTorch Lightning is required to load MPRALegNet models. "
                 "Please install with: pip install lightning or pytorch-lightning"
             ) from e
+        elif "tr_cfg" in str(e).lower():
+            # Try with default config if tr_cfg is missing
+            try:
+                from mpralegnet import get_default_config
+                default_config = get_default_config()
+                model = LitModel.load_from_checkpoint(oracle_path, tr_cfg=default_config).eval()
+                return model
+            except Exception as inner_e:
+                raise RuntimeError(
+                    f"Failed to load MPRALegNet model. Original error: {e}. "
+                    f"Tried with default config but got: {inner_e}"
+                ) from e
         raise
 
 def load_oracle_model(oracle_path, model_type='deepstarr'):
