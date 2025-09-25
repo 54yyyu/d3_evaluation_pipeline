@@ -56,7 +56,7 @@ def parse_arguments():
     
     parser.add_argument('--data', type=str,
                        default=os.getenv('DATA_FILE', 'DeepSTARR_data.h5'),
-                       help='Path to data H5 file (DeepSTARR_data.h5 or lentimpra_data.h5)')
+                       help='Path to data file (.h5 or .npz format) containing test/train sequences')
 
     parser.add_argument('--model', type=str,
                        default=os.getenv('MODEL_FILE', 'oracle_DeepSTARR_DeepSTARR_data.ckpt'),
@@ -207,16 +207,43 @@ def load_data_and_model(args):
     sample_seqs = samples['arr_0']
     sample_seqs = torch.tensor(sample_seqs, dtype=torch.float32)
 
-    # Load test data for attribution analysis
-    data_file = h5py.File(args.data, 'r')
-    if args.model_type.lower() in ['mpralegnet', 'lentimpra']:
-        if 'onehot_test' in data_file.keys():
-            X_test = torch.tensor(np.array(data_file['onehot_test']).transpose(0,2,1), dtype=torch.float32)
+    # Load test data for attribution analysis based on file format
+    if args.data.endswith('.npz'):
+        # Load from .npz file
+        npz_data = np.load(args.data)
+
+        if args.model_type.lower() in ['mpralegnet', 'lentimpra']:
+            if 'onehot_test' in npz_data.files:
+                x_test_attr = npz_data['onehot_test']
+                if x_test_attr.shape[-1] == 4:  # (n, 230, 4) format
+                    X_test = torch.tensor(x_test_attr.transpose(0,2,1), dtype=torch.float32)
+                else:
+                    X_test = torch.tensor(x_test_attr, dtype=torch.float32)
+            elif 'x_test' in npz_data.files:
+                X_test = torch.tensor(npz_data['x_test'].transpose(0,2,1), dtype=torch.float32)
+            elif 'X_test' in npz_data.files:
+                X_test = torch.tensor(npz_data['X_test'].transpose(0,2,1), dtype=torch.float32)
+            else:
+                X_test = x_test_tensor.transpose(1,2)  # Use already loaded data as fallback
+        else:
+            if 'x_test' in npz_data.files:
+                X_test = torch.tensor(npz_data['x_test'].transpose(0,2,1), dtype=torch.float32)
+            elif 'X_test' in npz_data.files:
+                X_test = torch.tensor(npz_data['X_test'].transpose(0,2,1), dtype=torch.float32)
+            else:
+                X_test = x_test_tensor.transpose(1,2)  # Use already loaded data as fallback
+
+    else:
+        # Load from .h5 file (existing functionality)
+        data_file = h5py.File(args.data, 'r')
+        if args.model_type.lower() in ['mpralegnet', 'lentimpra']:
+            if 'onehot_test' in data_file.keys():
+                X_test = torch.tensor(np.array(data_file['onehot_test']).transpose(0,2,1), dtype=torch.float32)
+            else:
+                X_test = torch.tensor(np.array(data_file['X_test']).transpose(0,2,1), dtype=torch.float32)
         else:
             X_test = torch.tensor(np.array(data_file['X_test']).transpose(0,2,1), dtype=torch.float32)
-    else:
-        X_test = torch.tensor(np.array(data_file['X_test']).transpose(0,2,1), dtype=torch.float32)
-    data_file.close()
+        data_file.close()
 
     print(f"Loaded {len(x_test)} test sequences")
     print(f"Loaded {len(x_synthetic)} synthetic sequences")
@@ -269,23 +296,69 @@ def run_batch_analysis(args):
     print(f"Loading model and test data (model type: {args.model_type})...")
     oracle_model = load_oracle_model(args.model, args.model_type)
 
-    # Load test and training data from the data file based on model type
-    with h5py.File(args.data, 'r') as f:
+    # Load test and training data from the data file based on file format and model type
+    if args.data.endswith('.npz'):
+        # Load from .npz file
+        npz_data = np.load(args.data)
+
         if args.model_type.lower() in ['mpralegnet', 'lentimpra']:
-            if 'onehot_test' in f.keys():
-                x_test = f['onehot_test'][()]
-                x_test = np.transpose(x_test, (0, 2, 1))  # Convert to (n, 4, 230)
+            # Try different naming conventions for test data
+            if 'onehot_test' in npz_data.files:
+                x_test = npz_data['onehot_test']
+                if x_test.shape[-1] == 4:  # (n, 230, 4) format
+                    x_test = np.transpose(x_test, (0, 2, 1))  # Convert to (n, 4, 230)
+            elif 'x_test' in npz_data.files:
+                x_test = npz_data['x_test']
+            elif 'X_test' in npz_data.files:
+                x_test = npz_data['X_test']
+            else:
+                raise KeyError(f"Could not find test data in .npz file. Available keys: {npz_data.files}")
+
+            # Try different naming conventions for training data
+            if 'onehot_train' in npz_data.files:
+                x_train = npz_data['onehot_train']
+                if x_train.shape[-1] == 4:  # (n, 230, 4) format
+                    x_train = np.transpose(x_train, (0, 2, 1))  # Convert to (n, 4, 230)
+            elif 'x_train' in npz_data.files:
+                x_train = npz_data['x_train']
+            elif 'X_train' in npz_data.files:
+                x_train = npz_data['X_train']
+            else:
+                raise KeyError(f"Could not find training data in .npz file. Available keys: {npz_data.files}")
+        else:
+            # DeepSTARR format
+            if 'x_test' in npz_data.files:
+                x_test = npz_data['x_test']
+            elif 'X_test' in npz_data.files:
+                x_test = npz_data['X_test']
+            else:
+                raise KeyError(f"Could not find test data in .npz file. Available keys: {npz_data.files}")
+
+            if 'x_train' in npz_data.files:
+                x_train = npz_data['x_train']
+            elif 'X_train' in npz_data.files:
+                x_train = npz_data['X_train']
+            else:
+                raise KeyError(f"Could not find training data in .npz file. Available keys: {npz_data.files}")
+
+    else:
+        # Load from .h5 file (existing functionality)
+        with h5py.File(args.data, 'r') as f:
+            if args.model_type.lower() in ['mpralegnet', 'lentimpra']:
+                if 'onehot_test' in f.keys():
+                    x_test = f['onehot_test'][()]
+                    x_test = np.transpose(x_test, (0, 2, 1))  # Convert to (n, 4, 230)
+                else:
+                    x_test = f['X_test'][()]
+
+                if 'onehot_train' in f.keys():
+                    x_train = f['onehot_train'][()]
+                    x_train = np.transpose(x_train, (0, 2, 1))  # Convert to (n, 4, 230)
+                else:
+                    x_train = f['X_train'][()]
             else:
                 x_test = f['X_test'][()]
-
-            if 'onehot_train' in f.keys():
-                x_train = f['onehot_train'][()]
-                x_train = np.transpose(x_train, (0, 2, 1))  # Convert to (n, 4, 230)
-            else:
                 x_train = f['X_train'][()]
-        else:
-            x_test = f['X_test'][()]
-            x_train = f['X_train'][()]
 
     x_test_tensor = numpy_to_tensor(x_test)
     x_train_tensor = numpy_to_tensor(x_train)

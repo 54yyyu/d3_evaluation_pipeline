@@ -5,11 +5,62 @@ import pandas as pd
 import torch
 import lightning as L
 import tqdm as tqdm_module
+import os
 
 from pytorch_lightning import LightningModule
 from deepstarr import *
 from mpralegnet import LitModel
 
+
+def detect_data_format(file_path):
+    """
+    Detect the format of a data file.
+
+    Args:
+        file_path: Path to the data file
+
+    Returns:
+        str: 'npz', 'h5', or 'unknown'
+    """
+    if not os.path.exists(file_path):
+        return 'unknown'
+
+    if file_path.endswith('.npz'):
+        return 'npz'
+    elif file_path.endswith('.h5') or file_path.endswith('.hdf5'):
+        return 'h5'
+    else:
+        # Try to detect based on content
+        try:
+            with h5py.File(file_path, 'r') as f:
+                return 'h5'
+        except:
+            try:
+                np.load(file_path)
+                return 'npz'
+            except:
+                return 'unknown'
+
+def print_data_file_info(file_path):
+    """
+    Print information about a data file's contents.
+
+    Args:
+        file_path: Path to the data file
+    """
+    format_type = detect_data_format(file_path)
+    print(f"Data file format: {format_type}")
+
+    if format_type == 'npz':
+        data = np.load(file_path)
+        print(f"Available keys: {list(data.files)}")
+        for key in data.files[:5]:  # Show first 5 keys
+            print(f"  {key}: {data[key].shape} {data[key].dtype}")
+    elif format_type == 'h5':
+        with h5py.File(file_path, 'r') as f:
+            print(f"Available keys: {list(f.keys())}")
+            for key in list(f.keys())[:5]:  # Show first 5 keys
+                print(f"  {key}: {f[key].shape} {f[key].dtype}")
 
 class EmbeddingExtractor:
     def __init__(self):
@@ -19,53 +70,118 @@ class EmbeddingExtractor:
         self.embedding = output.detach()
 
 def extract_data(samples_file_path, data_file):
-    """Extract data for deepstarr (legacy function)."""
-    #load samples from .npz file
+    """Extract data for deepstarr from either .h5 or .npz files."""
+    # Load samples from .npz file
     data = load(samples_file_path)
     samples = []
     lst = data.files
     for item in lst:
         samples.append(data[item])
 
-    #load in data
-    with h5py.File(data_file, 'r') as f:
-        # Access the data for the specific X_test key
-        x_test = f['X_test'][()]
-        x_train = f['X_train'][()]
+    # Load training/test data based on file format
+    if data_file.endswith('.npz'):
+        # Load from .npz file
+        npz_data = load(data_file)
 
-    #transpose samples to get shape (41186, 4, 249)
-    x_synthetic = np.transpose(samples[0], (0, 2, 1))
+        # Try different naming conventions for test data
+        if 'x_test' in npz_data.files:
+            x_test = npz_data['x_test']
+        elif 'X_test' in npz_data.files:
+            x_test = npz_data['X_test']
+        elif 'test_data' in npz_data.files:
+            x_test = npz_data['test_data']
+        else:
+            raise KeyError(f"Could not find test data in .npz file. Available keys: {npz_data.files}")
+
+        # Try different naming conventions for training data
+        if 'x_train' in npz_data.files:
+            x_train = npz_data['x_train']
+        elif 'X_train' in npz_data.files:
+            x_train = npz_data['X_train']
+        elif 'train_data' in npz_data.files:
+            x_train = npz_data['train_data']
+        else:
+            raise KeyError(f"Could not find training data in .npz file. Available keys: {npz_data.files}")
+
+    else:
+        # Load from .h5 file (existing functionality)
+        with h5py.File(data_file, 'r') as f:
+            # Access the data for the specific X_test key
+            x_test = f['X_test'][()]
+            x_train = f['X_train'][()]
+
+    # Transpose samples to get shape (n, 4, seq_len)
+    if samples[0].ndim == 3 and samples[0].shape[1] != 4:
+        # Transpose from (n, seq_len, 4) to (n, 4, seq_len)
+        x_synthetic = np.transpose(samples[0], (0, 2, 1))
+    else:
+        # Already in correct format
+        x_synthetic = samples[0]
 
     return x_test, x_synthetic, x_train
 
-def extract_lentimpra_data(samples_file_path, lentimpra_data):
-    """Extract data for lentimpra with 230-length sequences."""
-    #load samples from .npz file
+def extract_lentimpra_data(samples_file_path, data_file):
+    """Extract data for lentimpra with 230-length sequences from either .h5 or .npz files."""
+    # Load samples from .npz file
     data = load(samples_file_path)
     samples = []
     lst = data.files
     for item in lst:
         samples.append(data[item])
 
-    #load in data
-    with h5py.File(lentimpra_data, 'r') as f:
-        # Access the data for lentimpra format
-        # Assuming similar structure but with onehot_test and onehot_train
-        if 'onehot_test' in f.keys():
-            x_test = f['onehot_test'][()]  # shape: (n, 230, 4)
-            x_test = np.transpose(x_test, (0, 2, 1))  # Convert to (n, 4, 230)
-        elif 'X_test' in f.keys():
-            x_test = f['X_test'][()]
-        else:
-            raise KeyError("Could not find test data in lentimpra file")
+    # Load training/test data based on file format
+    if data_file.endswith('.npz'):
+        # Load from .npz file
+        npz_data = load(data_file)
 
-        if 'onehot_train' in f.keys():
-            x_train = f['onehot_train'][()]  # shape: (n, 230, 4)
-            x_train = np.transpose(x_train, (0, 2, 1))  # Convert to (n, 4, 230)
-        elif 'X_train' in f.keys():
-            x_train = f['X_train'][()]
+        # Try different naming conventions for test data
+        if 'x_test' in npz_data.files:
+            x_test = npz_data['x_test']
+        elif 'X_test' in npz_data.files:
+            x_test = npz_data['X_test']
+        elif 'test_data' in npz_data.files:
+            x_test = npz_data['test_data']
+        elif 'onehot_test' in npz_data.files:
+            x_test = npz_data['onehot_test']
+            if x_test.shape[-1] == 4:  # (n, 230, 4) format
+                x_test = np.transpose(x_test, (0, 2, 1))  # Convert to (n, 4, 230)
         else:
-            raise KeyError("Could not find training data in lentimpra file")
+            raise KeyError(f"Could not find test data in .npz file. Available keys: {npz_data.files}")
+
+        # Try different naming conventions for training data
+        if 'x_train' in npz_data.files:
+            x_train = npz_data['x_train']
+        elif 'X_train' in npz_data.files:
+            x_train = npz_data['X_train']
+        elif 'train_data' in npz_data.files:
+            x_train = npz_data['train_data']
+        elif 'onehot_train' in npz_data.files:
+            x_train = npz_data['onehot_train']
+            if x_train.shape[-1] == 4:  # (n, 230, 4) format
+                x_train = np.transpose(x_train, (0, 2, 1))  # Convert to (n, 4, 230)
+        else:
+            raise KeyError(f"Could not find training data in .npz file. Available keys: {npz_data.files}")
+
+    else:
+        # Load from .h5 file (existing functionality)
+        with h5py.File(data_file, 'r') as f:
+            # Access the data for lentimpra format
+            # Assuming similar structure but with onehot_test and onehot_train
+            if 'onehot_test' in f.keys():
+                x_test = f['onehot_test'][()]  # shape: (n, 230, 4)
+                x_test = np.transpose(x_test, (0, 2, 1))  # Convert to (n, 4, 230)
+            elif 'X_test' in f.keys():
+                x_test = f['X_test'][()]
+            else:
+                raise KeyError("Could not find test data in lentimpra file")
+
+            if 'onehot_train' in f.keys():
+                x_train = f['onehot_train'][()]  # shape: (n, 230, 4)
+                x_train = np.transpose(x_train, (0, 2, 1))  # Convert to (n, 4, 230)
+            elif 'X_train' in f.keys():
+                x_train = f['X_train'][()]
+            else:
+                raise KeyError("Could not find training data in lentimpra file")
 
     # Handle samples - they should be 230 length for lentimpra
     if samples[0].shape[-1] == 230:
