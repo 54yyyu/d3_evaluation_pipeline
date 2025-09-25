@@ -599,6 +599,9 @@ def run_single_modular_test(test_name, data, output_dir, all_results, completed_
             results = run_conditional_generation_fidelity_analysis(
                 data['oracle_model'], data['x_test_tensor'], data['x_synthetic_tensor'], output_dir)
         elif test_name == 'frechet_distance':
+            if data['model_type'].lower() in ['mpralegnet', 'lentimpra']:
+                print("Fréchet distance analysis not implemented yet for MPRALegNet models.")
+                raise NotImplementedError("Fréchet distance analysis not implemented yet for MPRALegNet models.")
             results = run_frechet_distance_analysis(
                 data['oracle_model'], data['x_test_tensor'], data['x_synthetic_tensor'], output_dir)
         elif test_name == 'predictive_dist_shift':
@@ -622,15 +625,20 @@ def run_single_modular_test(test_name, data, output_dir, all_results, completed_
             results = run_discriminability_analysis_modular(
                 output_dir=output_dir, h5_file=discriminability_file)
         elif test_name == 'motif_enrichment':
+            if not os.path.exists(motif_db_path):
+                raise FileNotFoundError(f"JASPAR motif database file not found: {motif_db_path}. "
+                                      f"Please provide the motif database file or use --motif-db to specify a custom path.")
             results = run_motif_enrichment_analysis(
                 data['x_test_tensor'], data['x_synthetic_tensor'], output_dir, motif_db_path)
         elif test_name == 'motif_cooccurrence':
+            if not os.path.exists(motif_db_path):
+                raise FileNotFoundError(f"JASPAR motif database file not found: {motif_db_path}. "
+                                      f"Please provide the motif database file or use --motif-db to specify a custom path.")
             results = run_motif_cooccurrence_analysis(
                 data['x_test_tensor'], data['x_synthetic_tensor'], output_dir, motif_db_path)
         elif test_name == 'attribution_consistency':
             results = run_attribution_consistency_analysis_modular(
-                data['oracle_model'], data['sample_seqs'], data['X_test'], output_dir,
-                model_type=data['model_type'])
+                data['oracle_model'], data['sample_seqs'], data['X_test'], output_dir)
         
         all_results[test_name] = results
         completed_analyses.append(test_name)

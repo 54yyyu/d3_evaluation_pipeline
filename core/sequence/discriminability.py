@@ -347,7 +347,13 @@ def train_discriminability_classifier(h5_file='Discriminatability.h5',
     # Setup logging and checkpointing
     os.makedirs(output_dir, exist_ok=True)
     log_dir = os.path.join(output_dir, "lightning_logs_discriminability")
-    tb_logger = pl_loggers.TensorBoardLogger(save_dir=log_dir)
+
+    # Try to create TensorBoard logger, fallback to None if not available
+    try:
+        tb_logger = pl_loggers.TensorBoardLogger(save_dir=log_dir)
+    except (ImportError, ModuleNotFoundError) as e:
+        print(f"Warning: TensorBoard not available ({e}). Training will proceed without logging.")
+        tb_logger = None
     
     # Checkpoint callback
     ckpt_filename = "discriminability_classifier"

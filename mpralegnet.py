@@ -696,6 +696,10 @@ class LitModel(pl.LightningModule):
         # Save hyperparameters
         self.save_hyperparameters({"config": self.tr_cfg.to_dict()})
 
+    def forward(self, x):
+        """Forward pass through the model."""
+        return self.model(x)
+
     def training_step(self, batch, batch_idx):
         """Training step."""
         X, y = batch
