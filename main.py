@@ -47,9 +47,9 @@ def parse_arguments():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description='Run D3 sequence analysis')
     
-    parser.add_argument('--samples', type=str, 
+    parser.add_argument('--samples', type=str,
                        default=os.getenv('SAMPLES_FILE', 'samples.npz'),
-                       help='Path to samples NPZ file')
+                       help='Path to samples file (.npz or .h5 format) containing synthetic sequences')
     
     parser.add_argument('--samples-batch', type=str,
                        help='Path to directory containing multiple NPZ files for batch processing')
@@ -203,8 +203,28 @@ def load_data_and_model(args):
     oracle_model = load_oracle_model(args.model, args.model_type)
 
     # Load sample sequences for attribution analysis
-    samples = np.load(args.samples)
-    sample_seqs = samples['arr_0']
+    if args.samples.endswith('.npz'):
+        samples = np.load(args.samples)
+        sample_seqs = samples['arr_0']
+    elif args.samples.endswith('.h5') or args.samples.endswith('.hdf5'):
+        with h5py.File(args.samples, 'r') as f:
+            # Try common naming conventions for samples
+            if 'arr_0' in f.keys():
+                sample_seqs = f['arr_0'][()]
+            elif 'samples' in f.keys():
+                sample_seqs = f['samples'][()]
+            elif 'x_synthetic' in f.keys():
+                sample_seqs = f['x_synthetic'][()]
+            elif 'synthetic_data' in f.keys():
+                sample_seqs = f['synthetic_data'][()]
+            else:
+                # Take the first available key
+                first_key = list(f.keys())[0]
+                sample_seqs = f[first_key][()]
+                print(f"Warning: Using key '{first_key}' for samples from H5 file")
+    else:
+        raise ValueError(f"Unsupported samples file format. Expected .npz or .h5/.hdf5, got: {args.samples}")
+
     sample_seqs = torch.tensor(sample_seqs, dtype=torch.float32)
 
     # Load test data for attribution analysis based on file format

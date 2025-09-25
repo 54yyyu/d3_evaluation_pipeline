@@ -70,12 +70,32 @@ class EmbeddingExtractor:
 
 def extract_data(samples_file_path, data_file):
     """Extract data for deepstarr from either .h5 or .npz files."""
-    # Load samples from .npz file
-    data = load(samples_file_path)
-    samples = []
-    lst = data.files
-    for item in lst:
-        samples.append(data[item])
+    # Load samples from .npz or .h5 file
+    if samples_file_path.endswith('.npz'):
+        data = load(samples_file_path)
+        samples = []
+        lst = data.files
+        for item in lst:
+            samples.append(data[item])
+    elif samples_file_path.endswith('.h5') or samples_file_path.endswith('.hdf5'):
+        with h5py.File(samples_file_path, 'r') as f:
+            samples = []
+            # Try common naming conventions for samples
+            if 'arr_0' in f.keys():
+                samples.append(f['arr_0'][()])
+            elif 'samples' in f.keys():
+                samples.append(f['samples'][()])
+            elif 'x_synthetic' in f.keys():
+                samples.append(f['x_synthetic'][()])
+            elif 'synthetic_data' in f.keys():
+                samples.append(f['synthetic_data'][()])
+            else:
+                # Take the first available key
+                first_key = list(f.keys())[0]
+                samples.append(f[first_key][()])
+                print(f"Warning: Using key '{first_key}' for samples from H5 file")
+    else:
+        raise ValueError(f"Unsupported samples file format. Expected .npz or .h5/.hdf5, got: {samples_file_path}")
 
     # Load training/test data based on file format
     if data_file.endswith('.npz'):
@@ -121,12 +141,32 @@ def extract_data(samples_file_path, data_file):
 
 def extract_lentimpra_data(samples_file_path, data_file):
     """Extract data for lentimpra with 230-length sequences from either .h5 or .npz files."""
-    # Load samples from .npz file
-    data = load(samples_file_path)
-    samples = []
-    lst = data.files
-    for item in lst:
-        samples.append(data[item])
+    # Load samples from .npz or .h5 file
+    if samples_file_path.endswith('.npz'):
+        data = load(samples_file_path)
+        samples = []
+        lst = data.files
+        for item in lst:
+            samples.append(data[item])
+    elif samples_file_path.endswith('.h5') or samples_file_path.endswith('.hdf5'):
+        with h5py.File(samples_file_path, 'r') as f:
+            samples = []
+            # Try common naming conventions for samples
+            if 'arr_0' in f.keys():
+                samples.append(f['arr_0'][()])
+            elif 'samples' in f.keys():
+                samples.append(f['samples'][()])
+            elif 'x_synthetic' in f.keys():
+                samples.append(f['x_synthetic'][()])
+            elif 'synthetic_data' in f.keys():
+                samples.append(f['synthetic_data'][()])
+            else:
+                # Take the first available key
+                first_key = list(f.keys())[0]
+                samples.append(f[first_key][()])
+                print(f"Warning: Using key '{first_key}' for samples from H5 file")
+    else:
+        raise ValueError(f"Unsupported samples file format. Expected .npz or .h5/.hdf5, got: {samples_file_path}")
 
     # Load training/test data based on file format
     if data_file.endswith('.npz'):

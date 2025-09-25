@@ -8,12 +8,13 @@ This reorganized analysis pipeline provides a unified interface to run all seque
 evaluation_pipeline/
 ├── main.py                           # Main runner script with batch support
 ├── deepstarr.py                      # DeepSTARR model architecture
+├── mpralegnet.py                     # MPRALegNet model architecture (lentimpra)
 ├── core/                             # Modular analysis components
 │   ├── functional/                   # Functional similarity analyses
 │   │   ├── cond_gen_fidelity.py      # Conditional generation fidelity
 │   │   ├── frechet_distance.py       # Fréchet distance analysis
 │   │   └── predictive_dist_shift.py  # Predictive distribution shift
-│   ├── sequence/                     # Sequence similarity analyses  
+│   ├── sequence/                     # Sequence similarity analyses
 │   │   ├── discriminability.py       # Binary classification AUROC
 │   │   ├── kmer_spectrum_shift.py    # k-mer frequency analysis
 │   │   └── percent_identity.py       # Normalized Hamming distance
@@ -30,22 +31,64 @@ evaluation_pipeline/
     └── finetune_run_train.py         # Fine-tuning training
 ```
 
+## Supported Data Formats and Models
+
+### File Format Support
+
+The pipeline supports **dual file formats** for both samples and data files:
+
+- **NPZ format** (.npz): NumPy archive files
+- **HDF5 format** (.h5, .hdf5): Hierarchical Data Format files
+
+Both formats are automatically detected and handled transparently. You can mix and match formats:
+```bash
+# Mix formats - samples in .h5, data in .npz
+python main.py --samples samples.h5 --data training_data.npz --model model.ckpt
+
+# All NPZ
+python main.py --samples samples.npz --data training_data.npz --model model.ckpt
+
+# All HDF5
+python main.py --samples samples.h5 --data training_data.h5 --model model.ckpt
+```
+
+### Model Type Support
+
+The pipeline supports multiple sequence models with different sequence lengths:
+
+| Model Type | Sequence Length | Oracle Model | File |
+|------------|----------------|--------------|------|
+| **deepstarr** (default) | 249 bp | DeepSTARR | `deepstarr.py` |
+| **mpralegnet** / **lentimpra** | 230 bp | MPRALegNet | `mpralegnet.py` |
+
+Use the `--model-type` parameter to specify the model:
+```bash
+# DeepSTARR (default, 249 bp sequences)
+python main.py --samples samples.npz --data data.h5 --model deepstarr_model.ckpt
+
+# Lentimpra (230 bp sequences)
+python main.py --samples samples.npz --data data.h5 --model mpralegnet_model.ckpt --model-type lentimpra
+```
+
 ## Usage
 
 ### Single Sample Mode
 
 ```bash
-# Run all tests (default)
+# Run all tests (default) - DeepSTARR model
 python main.py --samples samples.npz --data DeepSTARR_data.h5 --model oracle_DeepSTARR_DeepSTARR_data.ckpt
 
-# Run tests by similarity type
-python main.py --functional --samples samples.npz --data DeepSTARR_data.h5 --model oracle_DeepSTARR_DeepSTARR_data.ckpt
-python main.py --sequence --samples samples.npz --data DeepSTARR_data.h5 --model oracle_DeepSTARR_DeepSTARR_data.ckpt
-python main.py --compositional --samples samples.npz --data DeepSTARR_data.h5 --model oracle_DeepSTARR_DeepSTARR_data.ckpt
+# Run all tests with lentimpra model (230-length sequences)
+python main.py --samples samples.h5 --data lentimpra_data.npz --model mpralegnet_model.ckpt --model-type lentimpra
+
+# Run tests by similarity type (supports both .npz and .h5 for samples and data)
+python main.py --functional --samples samples.h5 --data DeepSTARR_data.npz --model oracle_DeepSTARR_DeepSTARR_data.ckpt
+python main.py --sequence --samples samples.npz --data lentimpra_data.h5 --model mpralegnet_model.ckpt --model-type mpralegnet
+python main.py --compositional --samples samples.h5 --data DeepSTARR_data.h5 --model oracle_DeepSTARR_DeepSTARR_data.ckpt
 
 # Run specific tests
 python main.py --test cond_gen_fidelity --samples samples.npz --data DeepSTARR_data.h5 --model oracle_DeepSTARR_DeepSTARR_data.ckpt
-python main.py --test "cond_gen_fidelity,frechet_distance" --samples samples.npz --data DeepSTARR_data.h5 --model oracle_DeepSTARR_DeepSTARR_data.ckpt
+python main.py --test "cond_gen_fidelity,frechet_distance" --samples samples.h5 --data lentimpra_data.npz --model mpralegnet_model.ckpt --model-type lentimpra
 ```
 
 ### Batch Mode
@@ -56,44 +99,54 @@ Process multiple samples at once with organized CSV and HDF5 outputs:
 # First run: Creates CSV template and exits for customization
 python main.py --samples-batch /path/to/batch_folder --data DeepSTARR_data.h5 --model oracle_model.ckpt
 
-# Second run: Processes all samples after optional CSV editing
+# Second run: Processes all samples after optional CSV editing (DeepSTARR)
 python main.py --samples-batch /path/to/batch_folder --data DeepSTARR_data.h5 --model oracle_model.ckpt
+
+# Batch processing with lentimpra model (supports .npz and .h5 for data files)
+python main.py --samples-batch /path/to/batch_folder --data lentimpra_data.npz --model mpralegnet_model.ckpt --model-type lentimpra
 
 # Run specific analysis types in batch mode
 python main.py --samples-batch /path/to/batch_folder --functional --data DeepSTARR_data.h5 --model oracle_model.ckpt
-python main.py --samples-batch /path/to/batch_folder --test "motif_enrichment,percent_identity" --data DeepSTARR_data.h5 --model oracle_model.ckpt
+python main.py --samples-batch /path/to/batch_folder --test "motif_enrichment,percent_identity" --data lentimpra_data.npz --model mpralegnet_model.ckpt --model-type mpralegnet
 ```
 
 #### Supported Directory Structures
 
-**Flat Structure**: Each NPZ file is one sample
+**Flat Structure**: Each file (.npz or .h5) is one sample
 ```
 batch_folder/
 ├── sample1.npz
-├── sample2.npz
+├── sample2.h5
 ├── sample3.npz
 └── metadata.csv (auto-generated)
 ```
 
-**Nested Structure**: Multiple NPZ files per sample (multiple data points)
+**Nested Structure**: Multiple files per sample (multiple data points, supports .npz and .h5)
 ```
 batch_folder/
 ├── sample1/
 │   ├── run_001.npz
-│   ├── run_002.npz
+│   ├── run_002.h5
 │   └── run_003.npz
 ├── sample2/
-│   ├── run_001.npz
+│   ├── run_001.h5
 │   └── run_002.npz
 └── metadata.csv (auto-generated)
 ```
 
 ### With Environment Variables
 ```bash
+# DeepSTARR example
 export SAMPLES_FILE=samples.npz
-export DATA_FILE=DeepSTARR_data.h5  
+export DATA_FILE=DeepSTARR_data.h5
 export MODEL_FILE=oracle_DeepSTARR_DeepSTARR_data.ckpt
 python analysis/main.py
+
+# Lentimpra example (supports .npz/.h5 for both samples and data)
+export SAMPLES_FILE=samples.h5
+export DATA_FILE=lentimpra_data.npz
+export MODEL_FILE=mpralegnet_model.ckpt
+python analysis/main.py --model-type lentimpra
 ```
 
 ### Selective Analysis
@@ -289,16 +342,20 @@ Each test's dependency on the oracle model:
 **Motif tests require a motif database file (defaults to JASPAR2024_CORE_non-redundant_pfms_meme.txt, can be customized with `--motif-db`).
 
 ### Tests Requiring Oracle Model (4/9)
-These tests need the trained DeepSTARR model to compute predictions or embeddings:
+These tests need the trained oracle model (DeepSTARR or MPRALegNet) to compute predictions or embeddings:
 - Conditional Generation Fidelity
-- Fréchet Distance  
+- Fréchet Distance
 - Predictive Distribution Shift
 - Attribution Consistency
 
 ### Tests Not Requiring Oracle Model (5/9)
-These tests work directly with sequence data:
+These tests work directly with sequence data and are model-agnostic:
 - Percent Identity
 - k-mer Spectrum Shift
 - Discriminability (uses own classifier)
 - Motif Enrichment
 - Motif Co-occurrence
+
+### Supported Oracle Models
+- **DeepSTARR**: For 249 bp sequences (default)
+- **MPRALegNet**: For 230 bp sequences (lentimpra data)
