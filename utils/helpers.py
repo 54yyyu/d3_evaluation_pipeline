@@ -441,6 +441,9 @@ def upgrade_state_dict(state_dict, prefixes=["encoder.sentence_encoder.", "encod
 
 def load_sei_model(oracle_path):
     """Load SEI model from checkpoint."""
+    import torch
+    import numpy as np
+
     try:
         # Create SEI model with proper architecture
         sei_model = Sei(4096, 21907)  # 4096 seq length, 21907 features
@@ -448,44 +451,87 @@ def load_sei_model(oracle_path):
 
         # Load checkpoint if provided
         if oracle_path and oracle_path != 'null':
+            print(f"Loading SEI checkpoint from: {oracle_path}")
+
             try:
                 # Try loading with weights_only=False for older checkpoints
                 checkpoint = torch.load(oracle_path, map_location='cpu', weights_only=False)
+                print("Successfully loaded checkpoint with weights_only=False")
             except Exception as first_error:
+                print(f"First attempt failed: {first_error}")
                 try:
                     # If that fails, try with safe globals for numpy
-                    import torch.serialization
-                    torch.serialization.add_safe_globals([
-                        'numpy.core.multiarray.scalar',
-                        'numpy.core.multiarray._reconstruct',
-                        'numpy.ndarray'
-                    ])
-                    checkpoint = torch.load(oracle_path, map_location='cpu', weights_only=True)
+                    with torch.serialization.safe_globals([
+                        np.core.multiarray.scalar,
+                        np.core.multiarray._reconstruct,
+                        np.ndarray,
+                        np.dtype,
+                        np.int64,
+                        np.float32,
+                        np.float64
+                    ]):
+                        checkpoint = torch.load(oracle_path, map_location='cpu', weights_only=True)
+                    print("Successfully loaded checkpoint with safe globals")
                 except Exception as second_error:
-                    # If both fail, raise the original error with helpful message
-                    raise RuntimeError(
-                        f"Failed to load checkpoint from {oracle_path}. "
-                        f"First attempt (weights_only=False): {first_error}. "
-                        f"Second attempt (with safe globals): {second_error}. "
-                        f"The checkpoint may be corrupted or incompatible."
-                    )
+                    print(f"Second attempt failed: {second_error}")
+                    # Try one more time with minimal safe loading
+                    try:
+                        checkpoint = torch.load(oracle_path, map_location='cpu', weights_only=False)
+                        print("Successfully loaded checkpoint on third attempt")
+                    except Exception as third_error:
+                        # If all fail, raise a comprehensive error
+                        raise RuntimeError(
+                            f"Failed to load checkpoint from {oracle_path}. "
+                            f"Tried multiple loading strategies:\n"
+                            f"1. weights_only=False: {first_error}\n"
+                            f"2. safe_globals: {second_error}\n"
+                            f"3. Final attempt: {third_error}\n"
+                            f"The checkpoint may be corrupted or incompatible."
+                        )
 
             # Extract state dict
             if isinstance(checkpoint, dict) and 'state_dict' in checkpoint:
                 state_dict = checkpoint['state_dict']
+                print("Found 'state_dict' key in checkpoint")
+            elif isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
+                state_dict = checkpoint['model_state_dict']
+                print("Found 'model_state_dict' key in checkpoint")
             elif isinstance(checkpoint, dict):
+                # If checkpoint is just the state dict itself
                 state_dict = checkpoint
+                print("Using checkpoint dict directly as state dict")
             else:
                 raise ValueError(f"Unexpected checkpoint format: {type(checkpoint)}")
 
+            print(f"State dict has {len(state_dict)} keys")
+
             # Upgrade state dict to remove prefixes
-            state_dict = upgrade_state_dict(state_dict, prefixes=['module.'])
-            oracle.load_state_dict(state_dict, strict=False)
+            original_keys = list(state_dict.keys())
+            state_dict = upgrade_state_dict(state_dict, prefixes=['module.', 'model.'])
+            new_keys = list(state_dict.keys())
+
+            if len(original_keys) != len(new_keys):
+                print(f"Upgraded state dict: {len(original_keys)} -> {len(new_keys)} keys")
+
+            # Load state dict with strict=False to handle missing/extra keys
+            missing_keys, unexpected_keys = oracle.load_state_dict(state_dict, strict=False)
+
+            if missing_keys:
+                print(f"Warning: Missing keys in checkpoint: {missing_keys[:5]}...")
+            if unexpected_keys:
+                print(f"Warning: Unexpected keys in checkpoint: {unexpected_keys[:5]}...")
+
+            print("Successfully loaded state dict into model")
 
         # Ensure model is in eval mode
         oracle.eval()
+        print("SEI model loaded and set to eval mode")
         return oracle
+
     except Exception as e:
+        print(f"Error in load_sei_model: {e}")
+        import traceback
+        traceback.print_exc()
         raise RuntimeError(f"Failed to load SEI oracle model: {e}")
 
 def load_oracle_model(oracle_path, model_type='deepstarr'):
