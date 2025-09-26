@@ -60,6 +60,7 @@ The pipeline supports multiple sequence models with different sequence lengths:
 |------------|----------------|--------------|------|
 | **deepstarr** (default) | 249 bp | DeepSTARR | `deepstarr.py` |
 | **mpralegnet** / **lentimpra** | 230 bp | MPRALegNet | `mpralegnet.py` |
+| **sei** | 4096 bp | SEI (Sequence-based Ensemble Interpretation) | `sei.py` |
 
 Use the `--model-type` parameter to specify the model:
 ```bash
@@ -68,6 +69,9 @@ python main.py --samples samples.npz --data data.h5 --model deepstarr_model.ckpt
 
 # Lentimpra (230 bp sequences)
 python main.py --samples samples.npz --data data.h5 --model mpralegnet_model.ckpt --model-type lentimpra
+
+# SEI (4096 bp sequences, promoter data)
+python main.py --samples samples.npz --data data.h5 --model sei_model.pth --model-type sei
 ```
 
 ## Usage
@@ -81,10 +85,14 @@ python main.py --samples samples.npz --data DeepSTARR_data.h5 --model oracle_Dee
 # Run all tests with lentimpra model (230-length sequences)
 python main.py --samples samples.h5 --data lentimpra_data.npz --model mpralegnet_model.ckpt --model-type lentimpra
 
+# Run all tests with SEI model (4096-length sequences, promoter data)
+python main.py --samples samples.h5 --data promoter_data.npz --model sei_model.pth --model-type sei
+
 # Run tests by similarity type (supports both .npz and .h5 for samples and data)
 python main.py --functional --samples samples.h5 --data DeepSTARR_data.npz --model oracle_DeepSTARR_DeepSTARR_data.ckpt
 python main.py --sequence --samples samples.npz --data lentimpra_data.h5 --model mpralegnet_model.ckpt --model-type mpralegnet
 python main.py --compositional --samples samples.h5 --data DeepSTARR_data.h5 --model oracle_DeepSTARR_DeepSTARR_data.ckpt
+python main.py --functional --samples samples.npz --data promoter_data.h5 --model sei_model.pth --model-type sei
 
 # Run specific tests
 python main.py --test cond_gen_fidelity --samples samples.npz --data DeepSTARR_data.h5 --model oracle_DeepSTARR_DeepSTARR_data.ckpt
@@ -104,6 +112,9 @@ python main.py --samples-batch /path/to/batch_folder --data DeepSTARR_data.h5 --
 
 # Batch processing with lentimpra model (supports .npz and .h5 for data files)
 python main.py --samples-batch /path/to/batch_folder --data lentimpra_data.npz --model mpralegnet_model.ckpt --model-type lentimpra
+
+# Batch processing with SEI model (supports .npz and .h5 for data files)
+python main.py --samples-batch /path/to/batch_folder --data promoter_data.npz --model sei_model.pth --model-type sei
 
 # Run specific analysis types in batch mode
 python main.py --samples-batch /path/to/batch_folder --functional --data DeepSTARR_data.h5 --model oracle_model.ckpt
@@ -359,3 +370,4 @@ These tests work directly with sequence data and are model-agnostic:
 ### Supported Oracle Models
 - **DeepSTARR**: For 249 bp sequences (default)
 - **MPRALegNet**: For 230 bp sequences (lentimpra data)
+- **SEI**: For 4096 bp sequences (promoter data)

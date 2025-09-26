@@ -250,7 +250,20 @@ def load_data_and_model(args):
                 X_test = x_test_tensor.transpose(1,2)  # Use already loaded data as fallback
         elif args.model_type.lower() == 'sei':
             # SEI expects (batch, 4, 4096) format - sequences padded to 4096
-            if 'x_test' in npz_data.files:
+            if 'test' in npz_data.files:
+                # Promoter format: extract sequences from test split
+                test_data = npz_data['test']
+                x_test_attr = test_data[:, :, :4]  # Extract first 4 channels
+                X_test = torch.tensor(x_test_attr.transpose(0,2,1), dtype=torch.float32)
+                # Pad to 4096 if needed (same logic as in extract_sei_data)
+                if X_test.shape[-1] < 4096:
+                    pad_size = 4096 - X_test.shape[-1]
+                    pad_left = pad_size // 2
+                    pad_right = pad_size - pad_left
+                    left_pad = torch.full((X_test.shape[0], 4, pad_left), 0.25)
+                    right_pad = torch.full((X_test.shape[0], 4, pad_right), 0.25)
+                    X_test = torch.cat([left_pad, X_test, right_pad], dim=-1)
+            elif 'x_test' in npz_data.files:
                 x_test_attr = npz_data['x_test']
                 if x_test_attr.shape[-1] == 4:  # (n, seq_len, 4) format
                     X_test = torch.tensor(x_test_attr.transpose(0,2,1), dtype=torch.float32)
@@ -278,7 +291,20 @@ def load_data_and_model(args):
                 X_test = torch.tensor(np.array(data_file['X_test']).transpose(0,2,1), dtype=torch.float32)
         elif args.model_type.lower() == 'sei':
             # SEI expects (batch, 4, 4096) format
-            if 'X_test' in data_file.keys():
+            if 'test' in data_file.keys():
+                # Promoter format: extract sequences from test split
+                test_data = np.array(data_file['test'])
+                x_test_attr = test_data[:, :, :4]  # Extract first 4 channels
+                X_test = torch.tensor(x_test_attr.transpose(0,2,1), dtype=torch.float32)
+                # Pad to 4096 if needed
+                if X_test.shape[-1] < 4096:
+                    pad_size = 4096 - X_test.shape[-1]
+                    pad_left = pad_size // 2
+                    pad_right = pad_size - pad_left
+                    left_pad = torch.full((X_test.shape[0], 4, pad_left), 0.25)
+                    right_pad = torch.full((X_test.shape[0], 4, pad_right), 0.25)
+                    X_test = torch.cat([left_pad, X_test, right_pad], dim=-1)
+            elif 'X_test' in data_file.keys():
                 X_test = torch.tensor(np.array(data_file['X_test']).transpose(0,2,1), dtype=torch.float32)
             elif 'x_test' in data_file.keys():
                 x_test_attr = np.array(data_file['x_test'])

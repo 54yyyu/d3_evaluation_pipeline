@@ -267,50 +267,81 @@ def extract_sei_data(samples_file_path, data_file):
         # Load from .npz file
         npz_data = load(data_file)
 
-        # Try different naming conventions for test data
-        if 'x_test' in npz_data.files:
-            x_test = npz_data['x_test']
-        elif 'X_test' in npz_data.files:
-            x_test = npz_data['X_test']
-        elif 'test_data' in npz_data.files:
-            x_test = npz_data['test_data']
-        else:
-            raise KeyError(f"Could not find test data in .npz file. Available keys: {npz_data.files}")
+        # Check for promoter dataset format (train/valid/test splits)
+        if 'train' in npz_data.files and 'test' in npz_data.files:
+            # Promoter dataset format: each split has shape (N, seq_len, 6)
+            # where [:, :, :4] are sequences and [:, :, 4:5] is activity
+            test_data = npz_data['test']
+            train_data = npz_data['train']
 
-        # Try different naming conventions for training data
-        if 'x_train' in npz_data.files:
-            x_train = npz_data['x_train']
-        elif 'X_train' in npz_data.files:
-            x_train = npz_data['X_train']
-        elif 'train_data' in npz_data.files:
-            x_train = npz_data['train_data']
+            # Extract sequences (first 4 channels) and transpose to (N, 4, seq_len)
+            x_test = test_data[:, :, :4].transpose(0, 2, 1)
+            x_train = train_data[:, :, :4].transpose(0, 2, 1)
         else:
-            raise KeyError(f"Could not find training data in .npz file. Available keys: {npz_data.files}")
+            # Try standard naming conventions for other formats
+            if 'x_test' in npz_data.files:
+                x_test = npz_data['x_test']
+            elif 'X_test' in npz_data.files:
+                x_test = npz_data['X_test']
+            elif 'test_data' in npz_data.files:
+                x_test = npz_data['test_data']
+            else:
+                raise KeyError(f"Could not find test data in .npz file. Available keys: {npz_data.files}")
+
+            # Try different naming conventions for training data
+            if 'x_train' in npz_data.files:
+                x_train = npz_data['x_train']
+            elif 'X_train' in npz_data.files:
+                x_train = npz_data['X_train']
+            elif 'train_data' in npz_data.files:
+                x_train = npz_data['train_data']
+            else:
+                raise KeyError(f"Could not find training data in .npz file. Available keys: {npz_data.files}")
 
     else:
         # Load from .h5 file
         with h5py.File(data_file, 'r') as f:
-            # Access the data for SEI format
-            if 'X_test' in f.keys():
-                x_test = f['X_test'][()]
-            elif 'x_test' in f.keys():
-                x_test = f['x_test'][()]
-            else:
-                raise KeyError("Could not find test data in SEI file")
+            # Check for promoter dataset format
+            if 'train' in f.keys() and 'test' in f.keys():
+                # Promoter dataset format
+                test_data = f['test'][()]
+                train_data = f['train'][()]
 
-            if 'X_train' in f.keys():
-                x_train = f['X_train'][()]
-            elif 'x_train' in f.keys():
-                x_train = f['x_train'][()]
+                # Extract sequences and transpose
+                x_test = test_data[:, :, :4].transpose(0, 2, 1)
+                x_train = train_data[:, :, :4].transpose(0, 2, 1)
             else:
-                raise KeyError("Could not find training data in SEI file")
+                # Standard format
+                if 'X_test' in f.keys():
+                    x_test = f['X_test'][()]
+                elif 'x_test' in f.keys():
+                    x_test = f['x_test'][()]
+                else:
+                    raise KeyError("Could not find test data in SEI file")
+
+                if 'X_train' in f.keys():
+                    x_train = f['X_train'][()]
+                elif 'x_train' in f.keys():
+                    x_train = f['x_train'][()]
+                else:
+                    raise KeyError("Could not find training data in SEI file")
 
     # Handle samples - ensure proper format for SEI (sequences should be padded to 4096)
-    if samples[0].ndim == 3 and samples[0].shape[1] != 4:
-        # Transpose from (n, seq_len, 4) to (n, 4, seq_len)
-        x_synthetic = np.transpose(samples[0], (0, 2, 1))
+    if samples[0].ndim == 3:
+        if samples[0].shape[-1] == 6:
+            # Promoter format: (n, seq_len, 6) - extract first 4 channels and transpose
+            x_synthetic = samples[0][:, :, :4].transpose(0, 2, 1)
+        elif samples[0].shape[-1] == 4:
+            # Standard format: (n, seq_len, 4) - transpose to (n, 4, seq_len)
+            x_synthetic = samples[0].transpose(0, 2, 1)
+        elif samples[0].shape[1] == 4:
+            # Already in (n, 4, seq_len) format
+            x_synthetic = samples[0]
+        else:
+            # Try transpose anyway
+            x_synthetic = np.transpose(samples[0], (0, 2, 1))
     else:
-        # Already in correct format
+        # Already in correct format or 2D
         x_synthetic = samples[0]
 
     # Ensure sequences are padded to 4096 for SEI
@@ -333,6 +364,34 @@ def extract_sei_data(samples_file_path, data_file):
         # Truncate if longer than 4096
         center_start = (current_seq_len - 4096) // 2
         x_synthetic = x_synthetic[:, :, center_start:center_start + 4096]
+
+    # Apply same padding logic to test and train data
+    for data_name, data_array in [('x_test', x_test), ('x_train', x_train)]:
+        current_seq_len = data_array.shape[-1]
+        if current_seq_len < 4096:
+            # Pad sequences to 4096 length
+            pad_size = 4096 - current_seq_len
+            pad_left = pad_size // 2
+            pad_right = pad_size - pad_left
+
+            # Create padding with uniform background
+            padding_shape = (data_array.shape[0], 4, pad_left)
+            left_pad = np.full(padding_shape, 0.25)
+            padding_shape = (data_array.shape[0], 4, pad_right)
+            right_pad = np.full(padding_shape, 0.25)
+
+            # Apply padding
+            data_array = np.concatenate([left_pad, data_array, right_pad], axis=-1)
+        elif current_seq_len > 4096:
+            # Truncate if longer than 4096
+            center_start = (current_seq_len - 4096) // 2
+            data_array = data_array[:, :, center_start:center_start + 4096]
+
+        # Update the variable
+        if data_name == 'x_test':
+            x_test = data_array
+        else:
+            x_train = data_array
 
     return x_test, x_synthetic, x_train
 
