@@ -8,6 +8,8 @@ import os
 
 from deepstarr import *
 from mpralegnet import LitModel
+from sei import Sei, NonStrandSpecific
+import re
 
 
 def detect_data_format(file_path):
@@ -231,6 +233,109 @@ def extract_lentimpra_data(samples_file_path, data_file):
 
     return x_test, x_synthetic, x_train
 
+def extract_sei_data(samples_file_path, data_file):
+    """Extract data for SEI with 4096-length sequences from either .h5 or .npz files."""
+    # Load samples from .npz or .h5 file
+    if samples_file_path.endswith('.npz'):
+        data = load(samples_file_path)
+        samples = []
+        lst = data.files
+        for item in lst:
+            samples.append(data[item])
+    elif samples_file_path.endswith('.h5') or samples_file_path.endswith('.hdf5'):
+        with h5py.File(samples_file_path, 'r') as f:
+            samples = []
+            # Try common naming conventions for samples
+            if 'arr_0' in f.keys():
+                samples.append(f['arr_0'][()])
+            elif 'samples' in f.keys():
+                samples.append(f['samples'][()])
+            elif 'x_synthetic' in f.keys():
+                samples.append(f['x_synthetic'][()])
+            elif 'synthetic_data' in f.keys():
+                samples.append(f['synthetic_data'][()])
+            else:
+                # Take the first available key
+                first_key = list(f.keys())[0]
+                samples.append(f[first_key][()])
+                print(f"Warning: Using key '{first_key}' for samples from H5 file")
+    else:
+        raise ValueError(f"Unsupported samples file format. Expected .npz or .h5/.hdf5, got: {samples_file_path}")
+
+    # Load training/test data based on file format
+    if data_file.endswith('.npz'):
+        # Load from .npz file
+        npz_data = load(data_file)
+
+        # Try different naming conventions for test data
+        if 'x_test' in npz_data.files:
+            x_test = npz_data['x_test']
+        elif 'X_test' in npz_data.files:
+            x_test = npz_data['X_test']
+        elif 'test_data' in npz_data.files:
+            x_test = npz_data['test_data']
+        else:
+            raise KeyError(f"Could not find test data in .npz file. Available keys: {npz_data.files}")
+
+        # Try different naming conventions for training data
+        if 'x_train' in npz_data.files:
+            x_train = npz_data['x_train']
+        elif 'X_train' in npz_data.files:
+            x_train = npz_data['X_train']
+        elif 'train_data' in npz_data.files:
+            x_train = npz_data['train_data']
+        else:
+            raise KeyError(f"Could not find training data in .npz file. Available keys: {npz_data.files}")
+
+    else:
+        # Load from .h5 file
+        with h5py.File(data_file, 'r') as f:
+            # Access the data for SEI format
+            if 'X_test' in f.keys():
+                x_test = f['X_test'][()]
+            elif 'x_test' in f.keys():
+                x_test = f['x_test'][()]
+            else:
+                raise KeyError("Could not find test data in SEI file")
+
+            if 'X_train' in f.keys():
+                x_train = f['X_train'][()]
+            elif 'x_train' in f.keys():
+                x_train = f['x_train'][()]
+            else:
+                raise KeyError("Could not find training data in SEI file")
+
+    # Handle samples - ensure proper format for SEI (sequences should be padded to 4096)
+    if samples[0].ndim == 3 and samples[0].shape[1] != 4:
+        # Transpose from (n, seq_len, 4) to (n, 4, seq_len)
+        x_synthetic = np.transpose(samples[0], (0, 2, 1))
+    else:
+        # Already in correct format
+        x_synthetic = samples[0]
+
+    # Ensure sequences are padded to 4096 for SEI
+    current_seq_len = x_synthetic.shape[-1]
+    if current_seq_len < 4096:
+        # Pad sequences to 4096 length with uniform background (0.25 for each nucleotide)
+        pad_size = 4096 - current_seq_len
+        pad_left = pad_size // 2
+        pad_right = pad_size - pad_left
+
+        # Create padding with uniform background
+        padding_shape = (x_synthetic.shape[0], 4, pad_left)
+        left_pad = np.full(padding_shape, 0.25)
+        padding_shape = (x_synthetic.shape[0], 4, pad_right)
+        right_pad = np.full(padding_shape, 0.25)
+
+        # Concatenate padding
+        x_synthetic = np.concatenate([left_pad, x_synthetic, right_pad], axis=-1)
+    elif current_seq_len > 4096:
+        # Truncate if longer than 4096
+        center_start = (current_seq_len - 4096) // 2
+        x_synthetic = x_synthetic[:, :, center_start:center_start + 4096]
+
+    return x_test, x_synthetic, x_train
+
 def numpy_to_tensor(array):
     return torch.from_numpy(array).float()
 
@@ -269,17 +374,44 @@ def load_mpralegnet(oracle_path):
                 ) from e
         raise
 
+def upgrade_state_dict(state_dict, prefixes=["encoder.sentence_encoder.", "encoder."]):
+    """Removes prefixes from state dict keys for SEI model loading."""
+    pattern = re.compile("^" + "|".join(prefixes))
+    state_dict = {pattern.sub("", name): param for name, param in state_dict.items()}
+    return state_dict
+
+def load_sei_model(oracle_path):
+    """Load SEI model from checkpoint."""
+    try:
+        # Create SEI model with proper architecture
+        sei_model = Sei(4096, 21907)  # 4096 seq length, 21907 features
+        oracle = NonStrandSpecific(sei_model)
+
+        # Load checkpoint if provided
+        if oracle_path and oracle_path != 'null':
+            checkpoint = torch.load(oracle_path, map_location='cpu')
+            state_dict = upgrade_state_dict(checkpoint['state_dict'], prefixes=['module.'])
+            oracle.load_state_dict(state_dict, strict=False)
+
+        # Ensure model is in eval mode
+        oracle.eval()
+        return oracle
+    except Exception as e:
+        raise RuntimeError(f"Failed to load SEI oracle model: {e}")
+
 def load_oracle_model(oracle_path, model_type='deepstarr'):
     """Load oracle model based on model type."""
     if model_type.lower() == 'deepstarr':
         return load_deepstarr(oracle_path)
     elif model_type.lower() in ['mpralegnet', 'lentimpra']:
         return load_mpralegnet(oracle_path)
+    elif model_type.lower() == 'sei':
+        return load_sei_model(oracle_path)
     else:
         raise ValueError(f"Unsupported model type: {model_type}")
 
-def load_predictions(x_test_tensor, x_synthetic_tensor, oracle_model):
-    """Load predictions from oracle model (works with both DeepSTARR and MPRALegNet)."""
+def load_predictions(x_test_tensor, x_synthetic_tensor, oracle_model, model_type='deepstarr'):
+    """Load predictions from oracle model (works with DeepSTARR, MPRALegNet, and SEI)."""
     # Ensure tensors are on the same device as the model
     device = next(oracle_model.parameters()).device
     x_test_tensor = x_test_tensor.to(device)
@@ -288,6 +420,13 @@ def load_predictions(x_test_tensor, x_synthetic_tensor, oracle_model):
     #run model predictions
     y_hat_test = oracle_model(x_test_tensor)
     y_hat_syn = oracle_model(x_synthetic_tensor)
+
+    # For SEI model, filter for specific features (e.g., H3K4me3)
+    if model_type.lower() == 'sei':
+        # Take mean across all chromatin features as a proxy
+        # In practice, you might want to filter for specific features
+        y_hat_test = y_hat_test.mean(dim=1, keepdim=True)
+        y_hat_syn = y_hat_syn.mean(dim=1, keepdim=True)
 
     #returns numpy arrays of oracle predictions from samples and x test
     return y_hat_test.detach().cpu().numpy(), y_hat_syn.detach().cpu().numpy()
@@ -299,7 +438,7 @@ def load_predictions_deepstarr(x_test_tensor, x_synthetic_tensor, deepstarr):
 
 extractor = EmbeddingExtractor()
 def get_penultimate_embeddings(model, x, model_type='deepstarr'):
-    """Get penultimate embeddings from model (works with both DeepSTARR and MPRALegNet)."""
+    """Get penultimate embeddings from model (works with DeepSTARR, MPRALegNet, and SEI)."""
     # Ensure tensor is on the same device as the model
     device = next(model.parameters()).device
     x = x.to(device)
@@ -310,6 +449,9 @@ def get_penultimate_embeddings(model, x, model_type='deepstarr'):
     elif model_type.lower() in ['mpralegnet', 'lentimpra']:
         # For MPRALegNet, hook into the last layer before output
         target_layer = 'model.head.2'  # This is the activation before final linear layer
+    elif model_type.lower() == 'sei':
+        # For SEI, hook into the spline transformation layer
+        target_layer = 'model.spline_tr.1'  # BSplineTransformation layer
     else:
         raise ValueError(f"Unsupported model type: {model_type}")
 

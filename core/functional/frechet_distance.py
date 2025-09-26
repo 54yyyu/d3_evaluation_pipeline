@@ -48,12 +48,12 @@ def run_frechet_distance_analysis(oracle_model, x_test_tensor, x_synthetic_tenso
     Lower values indicate closer alignment in oracle embedding space.
 
     Args:
-        oracle_model: The oracle model (DeepSTARR or MPRALegNet)
+        oracle_model: The oracle model (DeepSTARR, MPRALegNet, or SEI)
         x_test_tensor: Test sequences tensor
         x_synthetic_tensor: Synthetic sequences tensor
         output_dir: Directory to save results
         sample_name: Name of sample for batch processing (optional)
-        model_type: Type of model ('deepstarr', 'mpralegnet', 'lentimpra')
+        model_type: Type of model ('deepstarr', 'mpralegnet', 'lentimpra', 'sei')
 
     Returns:
         dict: Results dictionary with Fréchet distance

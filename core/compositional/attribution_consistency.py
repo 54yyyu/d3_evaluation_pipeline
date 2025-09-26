@@ -278,31 +278,39 @@ def Empiciral_box_pdf_func_2(phi_1, phi_2, r_s, n_bins, box_length, box_volume):
                 count_single_points+=1
     return Empirical_box_pdf * correction * 1 , Empirical_box_count *correction , Empirical_box_count_plain #, correction2
 
-def run_attribution_consistency_analysis(deepstarr, sample_seqs, X_test, output_dir=".", sample_name=None):
+def run_attribution_consistency_analysis(oracle_model, sample_seqs, X_test, output_dir=".", sample_name=None, model_type='deepstarr'):
     """
     Run attribution consistency analysis on sample sequences and test data.
-    
+
     Args:
-        deepstarr: The DeepSTARR model
+        oracle_model: The oracle model (DeepSTARR, MPRALegNet, or SEI)
         sample_seqs: Sample sequences tensor (N, L, A)
-        X_test: Test sequences tensor (N, L, A)  
+        X_test: Test sequences tensor (N, L, A)
         output_dir: Directory to save results
         sample_name: Name of sample for batch processing (optional)
-        
+        model_type: Type of oracle model ('deepstarr', 'mpralegnet', 'lentimpra', 'sei')
+
     Returns:
         dict: Results dictionary with entropic information
     """
     # Get current timestamp
     current_date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    
+
     # Ensure tensors are on the same device as the model
-    device = next(deepstarr.parameters()).device
+    device = next(oracle_model.parameters()).device
     sample_seqs = sample_seqs.to(device)
     X_test = X_test.to(device)
     
     # Top 2,000 functional activity sampled sequence
-    activity_sample_seqs = deepstarr(sample_seqs.permute(0,2,1))
-    samples_total_activity = activity_sample_seqs.sum(dim=1)
+    if model_type.lower() == 'sei':
+        # SEI expects (batch, 4, 4096) format
+        activity_sample_seqs = oracle_model(sample_seqs.permute(0,2,1))
+        # For SEI, take mean across features as total activity
+        samples_total_activity = activity_sample_seqs.mean(dim=1)
+    else:
+        # DeepSTARR/MPRALegNet format
+        activity_sample_seqs = oracle_model(sample_seqs.permute(0,2,1))
+        samples_total_activity = activity_sample_seqs.sum(dim=1)
     sorted_indices = torch.argsort(samples_total_activity, descending=True)
     top_sampled_seqs = sample_seqs[sorted_indices[:2000]]
     

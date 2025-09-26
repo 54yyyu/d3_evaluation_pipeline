@@ -28,7 +28,8 @@ import json
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from deepstarr import PL_DeepSTARR
-from utils.helpers import extract_data, extract_lentimpra_data, numpy_to_tensor, load_deepstarr, load_oracle_model
+from sei import Sei, NonStrandSpecific
+from utils.helpers import extract_data, extract_lentimpra_data, extract_sei_data, numpy_to_tensor, load_deepstarr, load_oracle_model, load_sei_model
 # Legacy imports removed - using only modular imports now
 
 # New modular imports
@@ -64,8 +65,8 @@ def parse_arguments():
 
     parser.add_argument('--model-type', type=str,
                        default=os.getenv('MODEL_TYPE', 'deepstarr'),
-                       choices=['deepstarr', 'mpralegnet', 'lentimpra'],
-                       help='Type of oracle model (deepstarr, mpralegnet, or lentimpra)')
+                       choices=['deepstarr', 'mpralegnet', 'lentimpra', 'sei'],
+                       help='Type of oracle model (deepstarr, mpralegnet, lentimpra, or sei)')
 
     parser.add_argument('--output-dir', type=str,
                        default=os.getenv('OUTPUT_DIR', 'results'),
@@ -191,6 +192,8 @@ def load_data_and_model(args):
     # Load data based on model type
     if args.model_type.lower() in ['mpralegnet', 'lentimpra']:
         x_test, x_synthetic, x_train = extract_lentimpra_data(args.samples, args.data)
+    elif args.model_type.lower() == 'sei':
+        x_test, x_synthetic, x_train = extract_sei_data(args.samples, args.data)
     else:
         x_test, x_synthetic, x_train = extract_data(args.samples, args.data)
 
@@ -245,6 +248,18 @@ def load_data_and_model(args):
                 X_test = torch.tensor(npz_data['X_test'].transpose(0,2,1), dtype=torch.float32)
             else:
                 X_test = x_test_tensor.transpose(1,2)  # Use already loaded data as fallback
+        elif args.model_type.lower() == 'sei':
+            # SEI expects (batch, 4, 4096) format - sequences padded to 4096
+            if 'x_test' in npz_data.files:
+                x_test_attr = npz_data['x_test']
+                if x_test_attr.shape[-1] == 4:  # (n, seq_len, 4) format
+                    X_test = torch.tensor(x_test_attr.transpose(0,2,1), dtype=torch.float32)
+                else:
+                    X_test = torch.tensor(x_test_attr, dtype=torch.float32)
+            elif 'X_test' in npz_data.files:
+                X_test = torch.tensor(npz_data['X_test'].transpose(0,2,1), dtype=torch.float32)
+            else:
+                X_test = x_test_tensor.transpose(1,2)  # Use already loaded data as fallback
         else:
             if 'x_test' in npz_data.files:
                 X_test = torch.tensor(npz_data['x_test'].transpose(0,2,1), dtype=torch.float32)
@@ -261,6 +276,18 @@ def load_data_and_model(args):
                 X_test = torch.tensor(np.array(data_file['onehot_test']).transpose(0,2,1), dtype=torch.float32)
             else:
                 X_test = torch.tensor(np.array(data_file['X_test']).transpose(0,2,1), dtype=torch.float32)
+        elif args.model_type.lower() == 'sei':
+            # SEI expects (batch, 4, 4096) format
+            if 'X_test' in data_file.keys():
+                X_test = torch.tensor(np.array(data_file['X_test']).transpose(0,2,1), dtype=torch.float32)
+            elif 'x_test' in data_file.keys():
+                x_test_attr = np.array(data_file['x_test'])
+                if x_test_attr.shape[-1] == 4:  # (n, seq_len, 4) format
+                    X_test = torch.tensor(x_test_attr.transpose(0,2,1), dtype=torch.float32)
+                else:
+                    X_test = torch.tensor(x_test_attr, dtype=torch.float32)
+            else:
+                X_test = x_test_tensor.transpose(1,2)  # Use already loaded data as fallback
         else:
             X_test = torch.tensor(np.array(data_file['X_test']).transpose(0,2,1), dtype=torch.float32)
         data_file.close()
@@ -597,16 +624,16 @@ def run_single_modular_test(test_name, data, output_dir, all_results, completed_
     try:
         if test_name == 'cond_gen_fidelity':
             results = run_conditional_generation_fidelity_analysis(
-                data['oracle_model'], data['x_test_tensor'], data['x_synthetic_tensor'], output_dir)
+                data['oracle_model'], data['x_test_tensor'], data['x_synthetic_tensor'], output_dir, model_type=data['model_type'])
         elif test_name == 'frechet_distance':
             if data['model_type'].lower() in ['mpralegnet', 'lentimpra']:
                 print("Fréchet distance analysis not implemented yet for MPRALegNet models.")
                 raise NotImplementedError("Fréchet distance analysis not implemented yet for MPRALegNet models.")
             results = run_frechet_distance_analysis(
-                data['oracle_model'], data['x_test_tensor'], data['x_synthetic_tensor'], output_dir)
+                data['oracle_model'], data['x_test_tensor'], data['x_synthetic_tensor'], output_dir, model_type=data['model_type'])
         elif test_name == 'predictive_dist_shift':
             results = run_predictive_distribution_shift_analysis(
-                data['oracle_model'], data['x_test_tensor'], data['x_synthetic_tensor'], output_dir)
+                data['oracle_model'], data['x_test_tensor'], data['x_synthetic_tensor'], output_dir, model_type=data['model_type'])
         elif test_name == 'percent_identity':
             results = run_percent_identity_analysis(
                 data['x_synthetic_tensor'], data['x_train_tensor'], output_dir)
@@ -638,7 +665,7 @@ def run_single_modular_test(test_name, data, output_dir, all_results, completed_
                 data['x_test_tensor'], data['x_synthetic_tensor'], output_dir, motif_db_path)
         elif test_name == 'attribution_consistency':
             results = run_attribution_consistency_analysis_modular(
-                data['oracle_model'], data['sample_seqs'], data['X_test'], output_dir)
+                data['oracle_model'], data['sample_seqs'], data['X_test'], output_dir, model_type=data['model_type'])
         
         all_results[test_name] = results
         completed_analyses.append(test_name)
