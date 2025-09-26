@@ -448,8 +448,38 @@ def load_sei_model(oracle_path):
 
         # Load checkpoint if provided
         if oracle_path and oracle_path != 'null':
-            checkpoint = torch.load(oracle_path, map_location='cpu')
-            state_dict = upgrade_state_dict(checkpoint['state_dict'], prefixes=['module.'])
+            try:
+                # Try loading with weights_only=False for older checkpoints
+                checkpoint = torch.load(oracle_path, map_location='cpu', weights_only=False)
+            except Exception as first_error:
+                try:
+                    # If that fails, try with safe globals for numpy
+                    import torch.serialization
+                    torch.serialization.add_safe_globals([
+                        'numpy.core.multiarray.scalar',
+                        'numpy.core.multiarray._reconstruct',
+                        'numpy.ndarray'
+                    ])
+                    checkpoint = torch.load(oracle_path, map_location='cpu', weights_only=True)
+                except Exception as second_error:
+                    # If both fail, raise the original error with helpful message
+                    raise RuntimeError(
+                        f"Failed to load checkpoint from {oracle_path}. "
+                        f"First attempt (weights_only=False): {first_error}. "
+                        f"Second attempt (with safe globals): {second_error}. "
+                        f"The checkpoint may be corrupted or incompatible."
+                    )
+
+            # Extract state dict
+            if isinstance(checkpoint, dict) and 'state_dict' in checkpoint:
+                state_dict = checkpoint['state_dict']
+            elif isinstance(checkpoint, dict):
+                state_dict = checkpoint
+            else:
+                raise ValueError(f"Unexpected checkpoint format: {type(checkpoint)}")
+
+            # Upgrade state dict to remove prefixes
+            state_dict = upgrade_state_dict(state_dict, prefixes=['module.'])
             oracle.load_state_dict(state_dict, strict=False)
 
         # Ensure model is in eval mode
