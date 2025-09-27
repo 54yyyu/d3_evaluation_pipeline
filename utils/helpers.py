@@ -505,13 +505,27 @@ def load_sei_model(oracle_path):
 
             print(f"State dict has {len(state_dict)} keys")
 
-            # Upgrade state dict to remove prefixes
+            # Handle state dict key mapping for NonStrandSpecific wrapper
             original_keys = list(state_dict.keys())
-            state_dict = upgrade_state_dict(state_dict, prefixes=['module.', 'model.'])
-            new_keys = list(state_dict.keys())
 
-            if len(original_keys) != len(new_keys):
-                print(f"Upgraded state dict: {len(original_keys)} -> {len(new_keys)} keys")
+            # Check if keys need 'model.' prefix (for NonStrandSpecific wrapper)
+            oracle_keys = set(oracle.state_dict().keys())
+            checkpoint_keys = set(state_dict.keys())
+
+            # If checkpoint keys don't have 'model.' prefix but oracle expects them
+            if not any(key.startswith('model.') for key in checkpoint_keys) and any(key.startswith('model.') for key in oracle_keys):
+                print("Adding 'model.' prefix to checkpoint keys for NonStrandSpecific wrapper")
+                new_state_dict = {}
+                for key, value in state_dict.items():
+                    new_key = f'model.{key}'
+                    new_state_dict[new_key] = value
+                state_dict = new_state_dict
+            else:
+                # Remove prefixes if they exist but shouldn't
+                state_dict = upgrade_state_dict(state_dict, prefixes=['module.'])
+
+            new_keys = list(state_dict.keys())
+            print(f"State dict key transformation: {len(original_keys)} -> {len(new_keys)} keys")
 
             # Load state dict with strict=False to handle missing/extra keys
             missing_keys, unexpected_keys = oracle.load_state_dict(state_dict, strict=False)
