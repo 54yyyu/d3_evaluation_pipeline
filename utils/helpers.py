@@ -507,12 +507,20 @@ def load_sei_model(oracle_path):
 
             # Handle state dict key mapping for NonStrandSpecific wrapper
             original_keys = list(state_dict.keys())
+            print(f"Sample checkpoint keys: {list(state_dict.keys())[:3]}")
 
-            # Check if keys need 'model.' prefix (for NonStrandSpecific wrapper)
+            # Get expected keys from oracle model
             oracle_keys = set(oracle.state_dict().keys())
-            checkpoint_keys = set(state_dict.keys())
+            print(f"Sample oracle keys: {list(oracle_keys)[:3]}")
 
-            # If checkpoint keys don't have 'model.' prefix but oracle expects them
+            # Clean up checkpoint keys by removing common prefixes first
+            state_dict = upgrade_state_dict(state_dict, prefixes=['module.model.', 'module.', 'model.'])
+
+            # Now check if we need to add 'model.' prefix for NonStrandSpecific wrapper
+            checkpoint_keys = set(state_dict.keys())
+            print(f"Sample cleaned keys: {list(checkpoint_keys)[:3]}")
+
+            # If cleaned checkpoint keys don't have 'model.' prefix but oracle expects them
             if not any(key.startswith('model.') for key in checkpoint_keys) and any(key.startswith('model.') for key in oracle_keys):
                 print("Adding 'model.' prefix to checkpoint keys for NonStrandSpecific wrapper")
                 new_state_dict = {}
@@ -520,11 +528,9 @@ def load_sei_model(oracle_path):
                     new_key = f'model.{key}'
                     new_state_dict[new_key] = value
                 state_dict = new_state_dict
-            else:
-                # Remove prefixes if they exist but shouldn't
-                state_dict = upgrade_state_dict(state_dict, prefixes=['module.'])
 
             new_keys = list(state_dict.keys())
+            print(f"Final sample keys: {list(state_dict.keys())[:3]}")
             print(f"State dict key transformation: {len(original_keys)} -> {len(new_keys)} keys")
 
             # Load state dict with strict=False to handle missing/extra keys
