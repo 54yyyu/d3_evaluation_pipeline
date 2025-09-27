@@ -586,6 +586,41 @@ def load_predictions(x_test_tensor, x_synthetic_tensor, oracle_model, model_type
     #returns numpy arrays of oracle predictions from samples and x test
     return y_hat_test.detach().cpu().numpy(), y_hat_syn.detach().cpu().numpy()
 
+def load_predictions_batched(x_test_tensor, x_synthetic_tensor, oracle_model, model_type='deepstarr', batch_size=32):
+    """Load predictions from oracle model with batching for GPU memory efficiency."""
+    # Ensure tensors are on the same device as the model
+    device = next(oracle_model.parameters()).device
+
+    def process_batched(tensor, batch_size):
+        """Process tensor in batches to avoid GPU memory issues."""
+        predictions = []
+        tensor = tensor.to(device)
+
+        with torch.no_grad():
+            for i in range(0, len(tensor), batch_size):
+                batch = tensor[i:i+batch_size]
+                batch_pred = oracle_model(batch)
+
+                # For SEI model, filter for specific features
+                if model_type.lower() == 'sei':
+                    batch_pred = batch_pred.mean(dim=1, keepdim=True)
+
+                predictions.append(batch_pred.detach().cpu())
+
+                # Clear GPU cache after each batch
+                if hasattr(torch, 'cuda') and torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+
+        return torch.cat(predictions, dim=0).numpy()
+
+    print(f"Processing {len(x_test_tensor)} test sequences in batches of {batch_size}...")
+    y_hat_test = process_batched(x_test_tensor, batch_size)
+
+    print(f"Processing {len(x_synthetic_tensor)} synthetic sequences in batches of {batch_size}...")
+    y_hat_syn = process_batched(x_synthetic_tensor, batch_size)
+
+    return y_hat_test, y_hat_syn
+
 def load_predictions_deepstarr(x_test_tensor, x_synthetic_tensor, deepstarr):
     """Legacy function - use load_predictions instead."""
     return load_predictions(x_test_tensor, x_synthetic_tensor, deepstarr)

@@ -10,7 +10,7 @@ def predictive_distribution_shift(y_hat_test, y_hat_syn):
     ks_statistic = scipy.stats.kstest(y_hat_test, y_hat_syn).statistic.mean()
     return ks_statistic
 
-def run_predictive_distribution_shift_analysis(oracle_model, x_test_tensor, x_synthetic_tensor, output_dir=".", sample_name=None, model_type='deepstarr'):
+def run_predictive_distribution_shift_analysis(oracle_model, x_test_tensor, x_synthetic_tensor, output_dir=".", sample_name=None, model_type='deepstarr', batch_size=32):
     """
     Run predictive distribution shift analysis.
 
@@ -24,16 +24,17 @@ def run_predictive_distribution_shift_analysis(oracle_model, x_test_tensor, x_sy
         output_dir: Directory to save results
         sample_name: Name of sample for batch processing (optional)
         model_type: Type of oracle model ('deepstarr', 'mpralegnet', 'lentimpra', 'sei')
+        batch_size: Batch size for inference to manage GPU memory
 
     Returns:
         dict: Results dictionary with distribution shift metric
     """
-    from utils.helpers import load_predictions
+    from utils.helpers import load_predictions_batched
 
     current_date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
     print("Computing model predictions for distribution shift analysis...")
-    y_hat_test, y_hat_syn = load_predictions(x_test_tensor, x_synthetic_tensor, oracle_model, model_type)
+    y_hat_test, y_hat_syn = load_predictions_batched(x_test_tensor, x_synthetic_tensor, oracle_model, model_type, batch_size)
     
     print("Computing predictive distribution shift...")
     ks_statistic = predictive_distribution_shift(y_hat_test, y_hat_syn)
