@@ -346,14 +346,9 @@ def train_discriminability_classifier(h5_file='Discriminatability.h5',
     
     # Setup logging and checkpointing
     os.makedirs(output_dir, exist_ok=True)
-    log_dir = os.path.join(output_dir, "lightning_logs_discriminability")
 
-    # Try to create TensorBoard logger, fallback to None if not available
-    try:
-        tb_logger = pl_loggers.TensorBoardLogger(save_dir=log_dir)
-    except (ImportError, ModuleNotFoundError) as e:
-        print(f"Warning: TensorBoard not available ({e}). Training will proceed without logging.")
-        tb_logger = None
+    # No logging to avoid TensorBoard dependency issues
+    tb_logger = None
     
     # Checkpoint callback
     ckpt_filename = "discriminability_classifier"
@@ -375,14 +370,15 @@ def train_discriminability_classifier(h5_file='Discriminatability.h5',
         mode='min'
     )
     
-    # Setup trainer
+    # Setup trainer - disable deterministic mode to avoid CUBLAS issues
     trainer = pl.Trainer(
         accelerator='cuda' if torch.cuda.is_available() else 'cpu',
         devices=1,
         max_epochs=model.train_max_epochs,
-        logger=tb_logger,
+        logger=None,  # Disable logging to avoid TensorBoard dependency
         callbacks=[checkpoint_callback, early_stop_callback],
-        deterministic=True
+        deterministic=False,  # Disable deterministic mode to avoid CUBLAS errors
+        enable_progress_bar=True
     )
     
     if verbose:

@@ -688,11 +688,19 @@ def load_predictions_deepstarr(x_test_tensor, x_synthetic_tensor, deepstarr):
 
 
 extractor = EmbeddingExtractor()
-def get_penultimate_embeddings(model, x, model_type='deepstarr'):
-    """Get penultimate embeddings from model (works with DeepSTARR, MPRALegNet, and SEI)."""
-    # Ensure tensor is on the same device as the model
-    device = next(model.parameters()).device
-    x = x.to(device)
+def get_penultimate_embeddings(model, x, model_type='deepstarr', batch_size=8):
+    """Get penultimate embeddings from model with batch processing (works with DeepSTARR, MPRALegNet, and SEI)."""
+    # Determine device
+    if torch.cuda.is_available():
+        device = torch.device('cuda')
+        print(f"Using GPU for embedding extraction with batch_size={batch_size}")
+    else:
+        device = torch.device('cpu')
+        print(f"Using CPU for embedding extraction with batch_size={batch_size}")
+
+    # Move model to device
+    model = model.to(device)
+    model.eval()
 
     # Find the penultimate layer based on model type
     if model_type.lower() == 'deepstarr':
@@ -706,22 +714,41 @@ def get_penultimate_embeddings(model, x, model_type='deepstarr'):
     else:
         raise ValueError(f"Unsupported model type: {model_type}")
 
-    # Find the penultimate layer
-    for name, module in model.named_modules():
-        if name == target_layer:
-            handle = module.register_forward_hook(extractor.hook)
-            break
-    else:
-        raise ValueError(f"Could not find '{target_layer}' layer in {model_type} model")
+    all_embeddings = []
 
-    # Forward pass
+    # Process in batches
     with torch.no_grad():
-        _ = model(x)
+        for i in tqdm(range(0, len(x), batch_size), desc="Extracting embeddings"):
+            batch = x[i:i+batch_size].to(device)
 
-    # Remove the hook
-    handle.remove()
+            # Create a new extractor for each batch
+            batch_extractor = EmbeddingExtractor()
 
-    return extractor.embedding
+            # Find the penultimate layer
+            handle = None
+            for name, module in model.named_modules():
+                if name == target_layer:
+                    handle = module.register_forward_hook(batch_extractor.hook)
+                    break
+
+            if handle is None:
+                raise ValueError(f"Could not find '{target_layer}' layer in {model_type} model")
+
+            # Forward pass
+            _ = model(batch)
+
+            # Remove the hook
+            handle.remove()
+
+            # Store embeddings and move to CPU
+            all_embeddings.append(batch_extractor.embedding.detach().cpu())
+
+            # Clear GPU cache after each batch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+    # Concatenate all embeddings
+    return torch.cat(all_embeddings, dim=0).numpy()
 
 #preparing data to put into kmer_statistics function
 def put_deepstarr_into_NLA(x_test_tensor, x_synthetic_tensor):

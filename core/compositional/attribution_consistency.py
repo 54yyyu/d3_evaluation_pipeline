@@ -301,16 +301,32 @@ def run_attribution_consistency_analysis(oracle_model, sample_seqs, X_test, outp
     sample_seqs = sample_seqs.to(device)
     X_test = X_test.to(device)
     
-    # Top 2,000 functional activity sampled sequence
-    if model_type.lower() == 'sei':
-        # SEI expects (batch, 4, 4096) format
-        activity_sample_seqs = oracle_model(sample_seqs.permute(0,2,1))
-        # For SEI, take mean across features as total activity
-        samples_total_activity = activity_sample_seqs.mean(dim=1)
-    else:
-        # DeepSTARR/MPRALegNet format
-        activity_sample_seqs = oracle_model(sample_seqs.permute(0,2,1))
-        samples_total_activity = activity_sample_seqs.sum(dim=1)
+    # Top 2,000 functional activity sampled sequence - use batch processing to avoid memory issues
+    print("Computing activity for sample sequences...")
+    batch_size = 8  # Very conservative batch size for SEI
+    all_activities = []
+
+    with torch.no_grad():
+        for i in tqdm(range(0, len(sample_seqs), batch_size), desc="Processing activity batches"):
+            batch = sample_seqs[i:i+batch_size].to(device)
+
+            if model_type.lower() == 'sei':
+                # SEI expects (batch, 4, 4096) format
+                activity_batch = oracle_model(batch.permute(0,2,1))
+                # For SEI, take mean across features as total activity
+                batch_activity = activity_batch.mean(dim=1)
+            else:
+                # DeepSTARR/MPRALegNet format
+                activity_batch = oracle_model(batch.permute(0,2,1))
+                batch_activity = activity_batch.sum(dim=1)
+
+            all_activities.append(batch_activity.cpu())
+
+            # Clear GPU cache after each batch
+            if hasattr(torch, 'cuda') and torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+    samples_total_activity = torch.cat(all_activities, dim=0)
     sorted_indices = torch.argsort(samples_total_activity, descending=True)
     top_sampled_seqs = sample_seqs[sorted_indices[:2000]]
     
