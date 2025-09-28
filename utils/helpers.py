@@ -524,30 +524,47 @@ def load_sei_model(oracle_path):
             checkpoint = None
 
             try:
-                # First try: Standard loading for cluster environments
-                print("  Trying standard loading...")
-                checkpoint = torch.load(oracle_path, map_location='cpu')
-                print("✓ Successfully loaded checkpoint with standard method")
+                # First try: weights_only=False (for trusted checkpoints)
+                print("  Trying loading with weights_only=False...")
+                checkpoint = torch.load(oracle_path, map_location='cpu', weights_only=False)
+                print("✓ Successfully loaded checkpoint with weights_only=False")
             except Exception as first_error:
-                print(f"  Standard loading failed: {first_error}")
+                print(f"  weights_only=False loading failed: {first_error}")
                 try:
-                    # Second try: Force CPU and disable pickle restrictions
-                    print("  Trying CPU-only loading...")
-                    checkpoint = torch.load(oracle_path, map_location=torch.device('cpu'))
-                    print("✓ Successfully loaded checkpoint with CPU-only method")
+                    # Second try: Use safe globals context manager for numpy objects
+                    print("  Trying loading with safe globals for numpy...")
+                    with torch.serialization.safe_globals([
+                        np.core.multiarray.scalar,
+                        np.core.multiarray._reconstruct,
+                        np.ndarray,
+                        np.dtype,
+                        np.int64,
+                        np.float32,
+                        np.float64,
+                        np.bool_
+                    ]):
+                        checkpoint = torch.load(oracle_path, map_location='cpu', weights_only=True)
+                    print("✓ Successfully loaded checkpoint with safe globals")
                 except Exception as second_error:
-                    print(f"  CPU-only loading failed: {second_error}")
-                    # If all fail, raise a comprehensive error
-                    raise RuntimeError(
-                        f"Failed to load checkpoint from {oracle_path}. "
-                        f"This may be due to:\n"
-                        f"1. Corrupted checkpoint file\n"
-                        f"2. Incompatible PyTorch version\n"
-                        f"3. File system issues on cluster\n"
-                        f"Errors:\n"
-                        f"  Standard: {first_error}\n"
-                        f"  CPU-only: {second_error}"
-                    )
+                    print(f"  Safe globals loading failed: {second_error}")
+                    try:
+                        # Third try: Legacy method for older PyTorch
+                        print("  Trying legacy loading method...")
+                        checkpoint = torch.load(oracle_path, map_location=torch.device('cpu'), weights_only=False)
+                        print("✓ Successfully loaded checkpoint with legacy method")
+                    except Exception as third_error:
+                        # If all fail, raise a comprehensive error
+                        raise RuntimeError(
+                            f"Failed to load checkpoint from {oracle_path}. "
+                            f"This may be due to:\n"
+                            f"1. Corrupted checkpoint file\n"
+                            f"2. Incompatible PyTorch version\n"
+                            f"3. File system issues on cluster\n"
+                            f"Errors:\n"
+                            f"  weights_only=False: {first_error}\n"
+                            f"  safe_globals: {second_error}\n"
+                            f"  legacy: {third_error}"
+                        )
 
             print(f"✓ Checkpoint loaded, processing state dict...")
 
