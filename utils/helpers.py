@@ -635,14 +635,25 @@ def load_oracle_model(oracle_path, model_type='deepstarr'):
 
 def load_predictions(x_test_tensor, x_synthetic_tensor, oracle_model, model_type='deepstarr'):
     """Load predictions from oracle model (works with DeepSTARR, MPRALegNet, and SEI)."""
+    # Detect and use GPU if available, otherwise use CPU
+    if torch.cuda.is_available():
+        device = torch.device('cuda')
+        print(f"Using GPU: {torch.cuda.get_device_name()}")
+    else:
+        device = torch.device('cpu')
+        print("Using CPU")
+
+    # Move model to device
+    oracle_model = oracle_model.to(device)
+
     # Ensure tensors are on the same device as the model
-    device = next(oracle_model.parameters()).device
     x_test_tensor = x_test_tensor.to(device)
     x_synthetic_tensor = x_synthetic_tensor.to(device)
 
     #run model predictions
-    y_hat_test = oracle_model(x_test_tensor)
-    y_hat_syn = oracle_model(x_synthetic_tensor)
+    with torch.no_grad():  # Add no_grad for inference efficiency
+        y_hat_test = oracle_model(x_test_tensor)
+        y_hat_syn = oracle_model(x_synthetic_tensor)
 
     # For SEI model, filter for specific features (e.g., H3K4me3)
     if model_type.lower() == 'sei':
