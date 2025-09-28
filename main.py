@@ -189,21 +189,41 @@ def load_data_and_model(args):
     """Load all required data and model."""
     print(f"Loading data and model (model type: {args.model_type})...")
 
+    # Check file existence first
+    print(f"✓ Checking file paths...")
+    if not os.path.exists(args.samples):
+        raise FileNotFoundError(f"Samples file not found: {args.samples}")
+    if not os.path.exists(args.data):
+        raise FileNotFoundError(f"Data file not found: {args.data}")
+    if not os.path.exists(args.model):
+        raise FileNotFoundError(f"Model file not found: {args.model}")
+    print(f"✓ All files exist")
+
     # Load data based on model type
+    print(f"✓ Loading data for model type: {args.model_type}")
     if args.model_type.lower() in ['mpralegnet', 'lentimpra']:
+        print("  Loading lentimpra data...")
         x_test, x_synthetic, x_train = extract_lentimpra_data(args.samples, args.data)
     elif args.model_type.lower() == 'sei':
+        print("  Loading SEI data...")
         x_test, x_synthetic, x_train = extract_sei_data(args.samples, args.data)
     else:
+        print("  Loading DeepSTARR data...")
         x_test, x_synthetic, x_train = extract_data(args.samples, args.data)
 
+    print(f"✓ Data loaded - Test: {x_test.shape}, Synthetic: {x_synthetic.shape}, Train: {x_train.shape}")
+
     # Convert to tensors
+    print("✓ Converting to tensors...")
     x_test_tensor = numpy_to_tensor(x_test)
     x_synthetic_tensor = numpy_to_tensor(x_synthetic)
     x_train_tensor = numpy_to_tensor(x_train)
+    print(f"✓ Tensors created")
 
     # Load oracle model
+    print(f"✓ Loading oracle model from: {args.model}")
     oracle_model = load_oracle_model(args.model, args.model_type)
+    print(f"✓ Oracle model loaded successfully")
 
     # Load sample sequences for attribution analysis
     if args.samples.endswith('.npz'):
@@ -560,7 +580,24 @@ def run_single_batch_test(test_name, oracle_model, model_type, x_test_tensor, x_
 def main():
     """Main analysis pipeline with on-the-fly result saving."""
     print("=== D3 Sequence Analysis Pipeline ===")
-    
+
+    # Check GPU availability
+    import torch
+    if torch.cuda.is_available():
+        device_count = torch.cuda.device_count()
+        current_device = torch.cuda.current_device()
+        device_name = torch.cuda.get_device_name(current_device)
+        print(f"✓ GPU detected: {device_name} (Device {current_device}/{device_count-1})")
+        print(f"✓ CUDA version: {torch.version.cuda}")
+
+        # Check GPU memory
+        memory_total = torch.cuda.get_device_properties(current_device).total_memory / (1024**3)
+        memory_allocated = torch.cuda.memory_allocated(current_device) / (1024**3)
+        memory_free = memory_total - memory_allocated
+        print(f"✓ GPU Memory: {memory_free:.1f}GB free / {memory_total:.1f}GB total")
+    else:
+        print("⚠ No GPU detected - will use CPU (slower)")
+
     # Parse arguments and validate inputs
     args = parse_arguments()
     

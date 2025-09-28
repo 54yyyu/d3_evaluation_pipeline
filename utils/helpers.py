@@ -5,12 +5,37 @@ import pandas as pd
 import torch
 import tqdm as tqdm_module
 import os
+import signal
+import time
 
 from deepstarr import *
 from mpralegnet import LitModel
 from sei import Sei, NonStrandSpecific
 import re
 
+
+class TimeoutError(Exception):
+    pass
+
+def timeout_handler(signum, frame):
+    raise TimeoutError("Operation timed out")
+
+def with_timeout(seconds):
+    """Context manager for timing out operations."""
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            # Set the signal handler and alarm
+            old_handler = signal.signal(signal.SIGALRM, timeout_handler)
+            signal.alarm(seconds)
+            try:
+                result = func(*args, **kwargs)
+            finally:
+                # Reset the alarm and handler
+                signal.alarm(0)
+                signal.signal(signal.SIGALRM, old_handler)
+            return result
+        return wrapper
+    return decorator
 
 def detect_data_format(file_path):
     """
@@ -235,49 +260,70 @@ def extract_lentimpra_data(samples_file_path, data_file):
 
 def extract_sei_data(samples_file_path, data_file):
     """Extract data for SEI with 4096-length sequences from either .h5 or .npz files."""
+    print(f"  Loading samples from: {samples_file_path}")
+
     # Load samples from .npz or .h5 file
     if samples_file_path.endswith('.npz'):
+        print("    Loading NPZ samples...")
         data = load(samples_file_path)
         samples = []
         lst = data.files
+        print(f"    Found keys: {lst}")
         for item in lst:
             samples.append(data[item])
+            print(f"    Loaded {item}: {data[item].shape}")
     elif samples_file_path.endswith('.h5') or samples_file_path.endswith('.hdf5'):
+        print("    Loading H5 samples...")
         with h5py.File(samples_file_path, 'r') as f:
+            print(f"    Found keys: {list(f.keys())}")
             samples = []
             # Try common naming conventions for samples
             if 'arr_0' in f.keys():
                 samples.append(f['arr_0'][()])
+                print(f"    Loaded arr_0: {f['arr_0'][()].shape}")
             elif 'samples' in f.keys():
                 samples.append(f['samples'][()])
+                print(f"    Loaded samples: {f['samples'][()].shape}")
             elif 'x_synthetic' in f.keys():
                 samples.append(f['x_synthetic'][()])
+                print(f"    Loaded x_synthetic: {f['x_synthetic'][()].shape}")
             elif 'synthetic_data' in f.keys():
                 samples.append(f['synthetic_data'][()])
+                print(f"    Loaded synthetic_data: {f['synthetic_data'][()].shape}")
             else:
                 # Take the first available key
                 first_key = list(f.keys())[0]
                 samples.append(f[first_key][()])
-                print(f"Warning: Using key '{first_key}' for samples from H5 file")
+                print(f"    Warning: Using key '{first_key}' for samples from H5 file: {f[first_key][()].shape}")
     else:
         raise ValueError(f"Unsupported samples file format. Expected .npz or .h5/.hdf5, got: {samples_file_path}")
 
+    print(f"  Loading training/test data from: {data_file}")
+
     # Load training/test data based on file format
     if data_file.endswith('.npz'):
+        print("    Loading NPZ training/test data...")
         # Load from .npz file
         npz_data = load(data_file)
+        print(f"    Found keys: {npz_data.files}")
 
         # Check for promoter dataset format (train/valid/test splits)
         if 'train' in npz_data.files and 'test' in npz_data.files:
+            print("    Detected promoter dataset format")
             # Promoter dataset format: each split has shape (N, seq_len, 6)
             # where [:, :, :4] are sequences and [:, :, 4:5] is activity
             test_data = npz_data['test']
             train_data = npz_data['train']
+            print(f"    Test data shape: {test_data.shape}")
+            print(f"    Train data shape: {train_data.shape}")
 
             # Extract sequences (first 4 channels) and transpose to (N, 4, seq_len)
             x_test = test_data[:, :, :4].transpose(0, 2, 1)
             x_train = train_data[:, :, :4].transpose(0, 2, 1)
+            print(f"    Extracted test sequences: {x_test.shape}")
+            print(f"    Extracted train sequences: {x_train.shape}")
         else:
+            print("    Using standard dataset format")
             # Try standard naming conventions for other formats
             if 'x_test' in npz_data.files:
                 x_test = npz_data['x_test']
@@ -299,18 +345,26 @@ def extract_sei_data(samples_file_path, data_file):
                 raise KeyError(f"Could not find training data in .npz file. Available keys: {npz_data.files}")
 
     else:
+        print("    Loading H5 training/test data...")
         # Load from .h5 file
         with h5py.File(data_file, 'r') as f:
+            print(f"    Found keys: {list(f.keys())}")
             # Check for promoter dataset format
             if 'train' in f.keys() and 'test' in f.keys():
+                print("    Detected promoter dataset format")
                 # Promoter dataset format
                 test_data = f['test'][()]
                 train_data = f['train'][()]
+                print(f"    Test data shape: {test_data.shape}")
+                print(f"    Train data shape: {train_data.shape}")
 
                 # Extract sequences and transpose
                 x_test = test_data[:, :, :4].transpose(0, 2, 1)
                 x_train = train_data[:, :, :4].transpose(0, 2, 1)
+                print(f"    Extracted test sequences: {x_test.shape}")
+                print(f"    Extracted train sequences: {x_train.shape}")
             else:
+                print("    Using standard dataset format")
                 # Standard format
                 if 'X_test' in f.keys():
                     x_test = f['X_test'][()]
@@ -445,84 +499,93 @@ def load_sei_model(oracle_path):
     import numpy as np
 
     try:
+        print(f"✓ Creating SEI model architecture...")
         # Create SEI model with proper architecture
         sei_model = Sei(4096, 21907)  # 4096 seq length, 21907 features
         oracle = NonStrandSpecific(sei_model)
+        print(f"✓ SEI model architecture created")
 
         # Load checkpoint if provided
         if oracle_path and oracle_path != 'null':
-            print(f"Loading SEI checkpoint from: {oracle_path}")
+            print(f"✓ Loading SEI checkpoint from: {oracle_path}")
+
+            # Check if file exists and is readable
+            if not os.path.exists(oracle_path):
+                raise FileNotFoundError(f"Checkpoint file not found: {oracle_path}")
+
+            # Try to get file size to verify it's not corrupted
+            try:
+                file_size = os.path.getsize(oracle_path)
+                print(f"✓ Checkpoint file size: {file_size / (1024*1024):.1f} MB")
+            except Exception as e:
+                print(f"Warning: Could not get file size: {e}")
+
+            print(f"✓ Attempting to load checkpoint...")
+            checkpoint = None
 
             try:
-                # Try loading with weights_only=False for older checkpoints
-                checkpoint = torch.load(oracle_path, map_location='cpu', weights_only=False)
-                print("Successfully loaded checkpoint with weights_only=False")
+                # First try: Standard loading for cluster environments
+                print("  Trying standard loading...")
+                checkpoint = torch.load(oracle_path, map_location='cpu')
+                print("✓ Successfully loaded checkpoint with standard method")
             except Exception as first_error:
-                print(f"First attempt failed: {first_error}")
+                print(f"  Standard loading failed: {first_error}")
                 try:
-                    # If that fails, try with safe globals for numpy
-                    with torch.serialization.safe_globals([
-                        np.core.multiarray.scalar,
-                        np.core.multiarray._reconstruct,
-                        np.ndarray,
-                        np.dtype,
-                        np.int64,
-                        np.float32,
-                        np.float64
-                    ]):
-                        checkpoint = torch.load(oracle_path, map_location='cpu', weights_only=True)
-                    print("Successfully loaded checkpoint with safe globals")
+                    # Second try: Force CPU and disable pickle restrictions
+                    print("  Trying CPU-only loading...")
+                    checkpoint = torch.load(oracle_path, map_location=torch.device('cpu'))
+                    print("✓ Successfully loaded checkpoint with CPU-only method")
                 except Exception as second_error:
-                    print(f"Second attempt failed: {second_error}")
-                    # Try one more time with minimal safe loading
-                    try:
-                        checkpoint = torch.load(oracle_path, map_location='cpu', weights_only=False)
-                        print("Successfully loaded checkpoint on third attempt")
-                    except Exception as third_error:
-                        # If all fail, raise a comprehensive error
-                        raise RuntimeError(
-                            f"Failed to load checkpoint from {oracle_path}. "
-                            f"Tried multiple loading strategies:\n"
-                            f"1. weights_only=False: {first_error}\n"
-                            f"2. safe_globals: {second_error}\n"
-                            f"3. Final attempt: {third_error}\n"
-                            f"The checkpoint may be corrupted or incompatible."
-                        )
+                    print(f"  CPU-only loading failed: {second_error}")
+                    # If all fail, raise a comprehensive error
+                    raise RuntimeError(
+                        f"Failed to load checkpoint from {oracle_path}. "
+                        f"This may be due to:\n"
+                        f"1. Corrupted checkpoint file\n"
+                        f"2. Incompatible PyTorch version\n"
+                        f"3. File system issues on cluster\n"
+                        f"Errors:\n"
+                        f"  Standard: {first_error}\n"
+                        f"  CPU-only: {second_error}"
+                    )
+
+            print(f"✓ Checkpoint loaded, processing state dict...")
 
             # Extract state dict
             if isinstance(checkpoint, dict) and 'state_dict' in checkpoint:
                 state_dict = checkpoint['state_dict']
-                print("Found 'state_dict' key in checkpoint")
+                print("✓ Found 'state_dict' key in checkpoint")
             elif isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
                 state_dict = checkpoint['model_state_dict']
-                print("Found 'model_state_dict' key in checkpoint")
+                print("✓ Found 'model_state_dict' key in checkpoint")
             elif isinstance(checkpoint, dict):
                 # If checkpoint is just the state dict itself
                 state_dict = checkpoint
-                print("Using checkpoint dict directly as state dict")
+                print("✓ Using checkpoint dict directly as state dict")
             else:
                 raise ValueError(f"Unexpected checkpoint format: {type(checkpoint)}")
 
-            print(f"State dict has {len(state_dict)} keys")
+            print(f"✓ State dict has {len(state_dict)} keys")
 
             # Handle state dict key mapping for NonStrandSpecific wrapper
             original_keys = list(state_dict.keys())
-            print(f"Sample checkpoint keys: {list(state_dict.keys())[:3]}")
+            print(f"✓ Sample checkpoint keys: {list(state_dict.keys())[:3]}")
 
             # Get expected keys from oracle model
             oracle_keys = set(oracle.state_dict().keys())
-            print(f"Sample oracle keys: {list(oracle_keys)[:3]}")
+            print(f"✓ Sample oracle keys: {list(oracle_keys)[:3]}")
 
+            print(f"✓ Cleaning up state dict keys...")
             # Clean up checkpoint keys by removing common prefixes first
             state_dict = upgrade_state_dict(state_dict, prefixes=['module.model.', 'module.', 'model.'])
 
             # Now check if we need to add 'model.' prefix for NonStrandSpecific wrapper
             checkpoint_keys = set(state_dict.keys())
-            print(f"Sample cleaned keys: {list(checkpoint_keys)[:3]}")
+            print(f"✓ Sample cleaned keys: {list(checkpoint_keys)[:3]}")
 
             # If cleaned checkpoint keys don't have 'model.' prefix but oracle expects them
             if not any(key.startswith('model.') for key in checkpoint_keys) and any(key.startswith('model.') for key in oracle_keys):
-                print("Adding 'model.' prefix to checkpoint keys for NonStrandSpecific wrapper")
+                print("✓ Adding 'model.' prefix to checkpoint keys for NonStrandSpecific wrapper")
                 new_state_dict = {}
                 for key, value in state_dict.items():
                     new_key = f'model.{key}'
@@ -530,26 +593,36 @@ def load_sei_model(oracle_path):
                 state_dict = new_state_dict
 
             new_keys = list(state_dict.keys())
-            print(f"Final sample keys: {list(state_dict.keys())[:3]}")
-            print(f"State dict key transformation: {len(original_keys)} -> {len(new_keys)} keys")
+            print(f"✓ Final sample keys: {list(state_dict.keys())[:3]}")
+            print(f"✓ State dict key transformation: {len(original_keys)} -> {len(new_keys)} keys")
 
+            print(f"✓ Loading state dict into model...")
             # Load state dict with strict=False to handle missing/extra keys
             missing_keys, unexpected_keys = oracle.load_state_dict(state_dict, strict=False)
 
             if missing_keys:
-                print(f"Warning: Missing keys in checkpoint: {missing_keys[:5]}...")
+                print(f"⚠ Warning: Missing keys in checkpoint: {missing_keys[:5]}...")
             if unexpected_keys:
-                print(f"Warning: Unexpected keys in checkpoint: {unexpected_keys[:5]}...")
+                print(f"⚠ Warning: Unexpected keys in checkpoint: {unexpected_keys[:5]}...")
 
-            print("Successfully loaded state dict into model")
+            print("✓ Successfully loaded state dict into model")
 
         # Ensure model is in eval mode
+        print(f"✓ Setting model to eval mode...")
         oracle.eval()
-        print("SEI model loaded and set to eval mode")
+        print("✓ SEI model loaded and set to eval mode")
+
+        # Test a small forward pass to ensure model works
+        print(f"✓ Testing model with dummy input...")
+        with torch.no_grad():
+            dummy_input = torch.randn(1, 4, 4096)
+            dummy_output = oracle(dummy_input)
+            print(f"✓ Model test successful - output shape: {dummy_output.shape}")
+
         return oracle
 
     except Exception as e:
-        print(f"Error in load_sei_model: {e}")
+        print(f"✗ Error in load_sei_model: {e}")
         import traceback
         traceback.print_exc()
         raise RuntimeError(f"Failed to load SEI oracle model: {e}")
