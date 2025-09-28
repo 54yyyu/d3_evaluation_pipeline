@@ -544,13 +544,13 @@ def run_single_batch_test(test_name, oracle_model, model_type, x_test_tensor, x_
     """Run a single test for batch mode."""
     if test_name == 'cond_gen_fidelity':
         run_conditional_generation_fidelity_analysis(
-            oracle_model, x_test_tensor, x_synthetic_tensor, output_dir, sample_name, model_type, batch_size=32)
+            oracle_model, x_test_tensor, x_synthetic_tensor, output_dir, sample_name, model_type)
     elif test_name == 'frechet_distance':
         run_frechet_distance_analysis(
             oracle_model, x_test_tensor, x_synthetic_tensor, output_dir, sample_name)
     elif test_name == 'predictive_dist_shift':
         run_predictive_distribution_shift_analysis(
-            oracle_model, x_test_tensor, x_synthetic_tensor, output_dir, sample_name, model_type, batch_size=32)
+            oracle_model, x_test_tensor, x_synthetic_tensor, output_dir, sample_name, model_type)
     elif test_name == 'percent_identity':
         run_percent_identity_analysis(
             x_synthetic_tensor, x_train_tensor, output_dir, sample_name)
@@ -574,7 +574,7 @@ def run_single_batch_test(test_name, oracle_model, model_type, x_test_tensor, x_
             x_test_tensor, x_synthetic_tensor, output_dir, motif_db_path, sample_name)
     elif test_name == 'attribution_consistency':
         run_attribution_consistency_analysis_modular(
-            oracle_model, sample_seqs, X_test, output_dir, sample_name, model_type=model_type, batch_size=32, shap_batch_size=4)
+            oracle_model, sample_seqs, X_test, output_dir, sample_name, model_type=model_type)
 
 
 def main():
@@ -687,7 +687,7 @@ def run_single_modular_test(test_name, data, output_dir, all_results, completed_
     try:
         if test_name == 'cond_gen_fidelity':
             results = run_conditional_generation_fidelity_analysis(
-                data['oracle_model'], data['x_test_tensor'], data['x_synthetic_tensor'], output_dir, model_type=data['model_type'], batch_size=32)
+                data['oracle_model'], data['x_test_tensor'], data['x_synthetic_tensor'], output_dir, model_type=data['model_type'])
         elif test_name == 'frechet_distance':
             if data['model_type'].lower() in ['mpralegnet', 'lentimpra']:
                 print("Fréchet distance analysis not implemented yet for MPRALegNet models.")
@@ -696,7 +696,7 @@ def run_single_modular_test(test_name, data, output_dir, all_results, completed_
                 data['oracle_model'], data['x_test_tensor'], data['x_synthetic_tensor'], output_dir, model_type=data['model_type'])
         elif test_name == 'predictive_dist_shift':
             results = run_predictive_distribution_shift_analysis(
-                data['oracle_model'], data['x_test_tensor'], data['x_synthetic_tensor'], output_dir, model_type=data['model_type'], batch_size=32)
+                data['oracle_model'], data['x_test_tensor'], data['x_synthetic_tensor'], output_dir, model_type=data['model_type'])
         elif test_name == 'percent_identity':
             results = run_percent_identity_analysis(
                 data['x_synthetic_tensor'], data['x_train_tensor'], output_dir)
@@ -728,7 +728,7 @@ def run_single_modular_test(test_name, data, output_dir, all_results, completed_
                 data['x_test_tensor'], data['x_synthetic_tensor'], output_dir, motif_db_path)
         elif test_name == 'attribution_consistency':
             results = run_attribution_consistency_analysis_modular(
-                data['oracle_model'], data['sample_seqs'], data['X_test'], output_dir, model_type=data['model_type'], batch_size=32, shap_batch_size=4)
+                data['oracle_model'], data['sample_seqs'], data['X_test'], output_dir, model_type=data['model_type'])
         
         all_results[test_name] = results
         completed_analyses.append(test_name)

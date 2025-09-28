@@ -10,30 +10,29 @@ def predictive_distribution_shift(y_hat_test, y_hat_syn):
     ks_statistic = scipy.stats.kstest(y_hat_test, y_hat_syn).statistic.mean()
     return ks_statistic
 
-def run_predictive_distribution_shift_analysis(oracle_model, x_test_tensor, x_synthetic_tensor, output_dir=".", sample_name=None, model_type='deepstarr'):
+def run_predictive_distribution_shift_analysis(deepstarr, x_test_tensor, x_synthetic_tensor, output_dir=".", sample_name=None):
     """
     Run predictive distribution shift analysis.
-
-    Uses the Kolmogorov-Smirnov statistic to compare empirical cumulative distribution
+    
+    Uses the Kolmogorov-Smirnov statistic to compare empirical cumulative distribution 
     functions of oracle predictions for generated and real sequences.
-
+    
     Args:
-        oracle_model: The oracle model (DeepSTARR, MPRALegNet, or SEI)
+        deepstarr: The DeepSTARR oracle model
         x_test_tensor: Test sequences tensor
         x_synthetic_tensor: Synthetic sequences tensor
         output_dir: Directory to save results
         sample_name: Name of sample for batch processing (optional)
-        model_type: Type of oracle model ('deepstarr', 'mpralegnet', 'lentimpra', 'sei')
-
+        
     Returns:
         dict: Results dictionary with distribution shift metric
     """
     from utils.helpers import load_predictions
-
+    
     current_date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-
+    
     print("Computing model predictions for distribution shift analysis...")
-    y_hat_test, y_hat_syn = load_predictions(x_test_tensor, x_synthetic_tensor, oracle_model, model_type)
+    y_hat_test, y_hat_syn = load_predictions(x_test_tensor, x_synthetic_tensor, deepstarr)
     
     print("Computing predictive distribution shift...")
     ks_statistic = predictive_distribution_shift(y_hat_test, y_hat_syn)

@@ -14,8 +14,8 @@ Empirical_box_pdf_s = []
 Empirical_box_count_s = []
 Empirical_box_count_plain_s = []
 
-def gradient_shap(x_seq, model, class_index=0, trim_end=None, batch_size=8):
-    """Compute gradient SHAP scores for sequence attribution with memory optimization."""
+def gradient_shap(x_seq, model, class_index=0, trim_end=None):
+    """Compute gradient SHAP scores for sequence attribution."""
     # Detect device of the model
     device = next(model.parameters()).device
 
@@ -26,50 +26,32 @@ def gradient_shap(x_seq, model, class_index=0, trim_end=None, batch_size=8):
     x_seq = np.swapaxes(x_seq,1,2)
     N,A,L = x_seq.shape
     score_cache = []
-
-    # Process in smaller batches to avoid GPU memory issues
-    for batch_start in range(0, N, batch_size):
-        batch_end = min(batch_start + batch_size, N)
-        batch_x_seq = x_seq[batch_start:batch_end]
-
-        batch_scores = []
-        for i, x in tqdm(enumerate(batch_x_seq), desc=f"Computing SHAP scores (batch {batch_start//batch_size + 1})", total=len(batch_x_seq)):
-            # process sequences so that they are right shape (based on insertions)
-            x = np.expand_dims(x, axis=0)
-            x_tensor = torch.tensor(x, requires_grad=True, dtype=torch.float32).to(device)
-
-            # Reduce background samples for memory efficiency
-            num_background = 200  # Reduced from 1000
-            null_index = np.random.randint(0,3, size=(num_background,L))
-            x_null = np.zeros((num_background,A,L))
-            for n in range(num_background):
-                for l in range(L):
-                    x_null[n,null_index[n,l],l] = 1.0
-            x_null_tensor = torch.tensor(x_null, requires_grad=True, dtype=torch.float32).to(device)
-
-            # calculate gradient shap with reduced samples
-            gradient_shap_attr = GradientShap(model)
-            grad = gradient_shap_attr.attribute(x_tensor,
-                                              n_samples=50,  # Reduced from 100
-                                              stdevs=0.1,
-                                              baselines=x_null_tensor,
-                                              target=class_index)
-            grad = grad.data.cpu().numpy()
-
-            # process gradients with gradient correction (Majdandzic et al. 2022)
-            grad -= np.mean(grad, axis=1, keepdims=True)
-            batch_scores.append(np.squeeze(grad))
-
-            # Clear GPU cache after each sequence
-            if hasattr(torch, 'cuda') and torch.cuda.is_available():
-                torch.cuda.empty_cache()
-
-        score_cache.extend(batch_scores)
-
-        # Clear GPU cache after each batch
-        if hasattr(torch, 'cuda') and torch.cuda.is_available():
-            torch.cuda.empty_cache()
-
+    for i,x in tqdm(enumerate(x_seq), desc="Computing SHAP scores", total=len(x_seq)):
+        # process sequences so that they are right shape (based on insertions)
+        x = np.expand_dims(x, axis=0)
+        x_tensor = torch.tensor(x, requires_grad=True, dtype=torch.float32).to(device)
+        #x_tensor = model._pad_end(x_tensor)
+        x = x_tensor.cpu().detach().numpy()
+        # random background
+        num_background = 1000
+        null_index = np.random.randint(0,3, size=(num_background,L))
+        x_null = np.zeros((num_background,A,L))
+        for n in range(num_background):
+            for l in range(L):
+                x_null[n,null_index[n,l],l] = 1.0
+        x_null_tensor = torch.tensor(x_null, requires_grad=True, dtype=torch.float32).to(device)
+        #x_null_tensor = model._pad_end(x_null_tensor)
+        # calculate gradient shap
+        gradient_shap = GradientShap(model)
+        grad = gradient_shap.attribute(x_tensor,
+                                      n_samples=100,
+                                      stdevs=0.1,
+                                      baselines=x_null_tensor,
+                                      target=class_index)
+        grad = grad.data.cpu().numpy()
+        # process gradients with gradient correction (Majdandzic et al. 2022)
+        grad -= np.mean(grad, axis=1, keepdims=True)
+        score_cache.append(np.squeeze(grad))
     score_cache = np.array(score_cache)
     if len(score_cache.shape)<3:
         score_cache=np.expand_dims(score_cache,axis=0)
@@ -296,7 +278,7 @@ def Empiciral_box_pdf_func_2(phi_1, phi_2, r_s, n_bins, box_length, box_volume):
                 count_single_points+=1
     return Empirical_box_pdf * correction * 1 , Empirical_box_count *correction , Empirical_box_count_plain #, correction2
 
-def run_attribution_consistency_analysis(oracle_model, sample_seqs, X_test, output_dir=".", sample_name=None, model_type='deepstarr', batch_size=32, shap_batch_size=4):
+def run_attribution_consistency_analysis(oracle_model, sample_seqs, X_test, output_dir=".", sample_name=None, model_type='deepstarr'):
     """
     Run attribution consistency analysis on sample sequences and test data.
 
@@ -307,8 +289,6 @@ def run_attribution_consistency_analysis(oracle_model, sample_seqs, X_test, outp
         output_dir: Directory to save results
         sample_name: Name of sample for batch processing (optional)
         model_type: Type of oracle model ('deepstarr', 'mpralegnet', 'lentimpra', 'sei')
-        batch_size: Batch size for forward pass inference
-        shap_batch_size: Batch size for SHAP computation (smaller for memory efficiency)
 
     Returns:
         dict: Results dictionary with entropic information
@@ -321,37 +301,22 @@ def run_attribution_consistency_analysis(oracle_model, sample_seqs, X_test, outp
     sample_seqs = sample_seqs.to(device)
     X_test = X_test.to(device)
     
-    # Top 2,000 functional activity sampled sequence - process in batches
-    print("Computing activity for sample sequences...")
-    all_activities = []
-
-    with torch.no_grad():
-        for i in range(0, len(sample_seqs), batch_size):
-            batch = sample_seqs[i:i+batch_size].to(device)
-
-            if model_type.lower() == 'sei':
-                # SEI expects (batch, 4, 4096) format
-                activity_batch = oracle_model(batch.permute(0,2,1))
-                # For SEI, take mean across features as total activity
-                batch_activity = activity_batch.mean(dim=1)
-            else:
-                # DeepSTARR/MPRALegNet format
-                activity_batch = oracle_model(batch.permute(0,2,1))
-                batch_activity = activity_batch.sum(dim=1)
-
-            all_activities.append(batch_activity.cpu())
-
-            # Clear GPU cache after each batch
-            if hasattr(torch, 'cuda') and torch.cuda.is_available():
-                torch.cuda.empty_cache()
-
-    samples_total_activity = torch.cat(all_activities, dim=0)
+    # Top 2,000 functional activity sampled sequence
+    if model_type.lower() == 'sei':
+        # SEI expects (batch, 4, 4096) format
+        activity_sample_seqs = oracle_model(sample_seqs.permute(0,2,1))
+        # For SEI, take mean across features as total activity
+        samples_total_activity = activity_sample_seqs.mean(dim=1)
+    else:
+        # DeepSTARR/MPRALegNet format
+        activity_sample_seqs = oracle_model(sample_seqs.permute(0,2,1))
+        samples_total_activity = activity_sample_seqs.sum(dim=1)
     sorted_indices = torch.argsort(samples_total_activity, descending=True)
     top_sampled_seqs = sample_seqs[sorted_indices[:2000]]
     
     # SHAP score for top activity sequences
     print("Computing SHAP scores for top 2000 sequences...")
-    shap_score_top_sampled = gradient_shap(top_sampled_seqs, oracle_model, batch_size=shap_batch_size)
+    shap_score_top_sampled = gradient_shap(top_sampled_seqs, oracle_model)
     
     print("Processing attribution maps...")
     attribution_map_top_sampled = process_attribution_map(shap_score_top_sampled, k=6)
@@ -370,7 +335,7 @@ def run_attribution_consistency_analysis(oracle_model, sample_seqs, X_test, outp
     # Consistency across generated and observed sequence
     concatenated_seqs = torch.cat((X_test, sample_seqs), dim=0)
     print(f"Computing SHAP scores for {len(concatenated_seqs)} concatenated sequences...")
-    shap_score_concatenated = gradient_shap(concatenated_seqs, oracle_model, batch_size=shap_batch_size)
+    shap_score_concatenated = gradient_shap(concatenated_seqs, oracle_model)
     
     print("Processing attribution maps for concatenated sequences...")
     attribution_map_concatenated = process_attribution_map(shap_score_concatenated, k=6)
