@@ -644,40 +644,8 @@ def load_oracle_model(oracle_path, model_type='deepstarr'):
         raise ValueError(f"Unsupported model type: {model_type}")
 
 def load_predictions(x_test_tensor, x_synthetic_tensor, oracle_model, model_type='deepstarr'):
-    """Load predictions from oracle model (works with DeepSTARR, MPRALegNet, and SEI)."""
-    # Use the same GPU detection pattern as discriminability analysis
-    if torch.cuda.is_available():
-        device = torch.device('cuda')
-        device_name = "CUDA"
-        try:
-            gpu_name = torch.cuda.get_device_name(0)
-            device_name = f"CUDA ({gpu_name})"
-        except:
-            pass
-        print(f"Using {device_name} for predictions")
-    else:
-        device = torch.device('cpu')
-        print("Using CPU for predictions")
-
-    # Move model and tensors to the selected device
-    oracle_model = oracle_model.to(device)
-    x_test_tensor = x_test_tensor.to(device)
-    x_synthetic_tensor = x_synthetic_tensor.to(device)
-
-    #run model predictions
-    with torch.no_grad():  # Add no_grad for inference efficiency
-        y_hat_test = oracle_model(x_test_tensor)
-        y_hat_syn = oracle_model(x_synthetic_tensor)
-
-    # For SEI model, filter for specific features (e.g., H3K4me3)
-    if model_type.lower() == 'sei':
-        # Take mean across all chromatin features as a proxy
-        # In practice, you might want to filter for specific features
-        y_hat_test = y_hat_test.mean(dim=1, keepdim=True)
-        y_hat_syn = y_hat_syn.mean(dim=1, keepdim=True)
-
-    #returns numpy arrays of oracle predictions from samples and x test
-    return y_hat_test.detach().cpu().numpy(), y_hat_syn.detach().cpu().numpy()
+    """Load predictions from oracle model - DEPRECATED: Use batch processing in individual analyses instead."""
+    raise RuntimeError("load_predictions is deprecated due to GPU memory issues. Each analysis should implement its own batch processing to avoid out-of-memory errors with large SEI models.")
 
 def load_predictions_batched(x_test_tensor, x_synthetic_tensor, oracle_model, model_type='deepstarr', batch_size=32):
     """Load predictions from oracle model with batching for GPU memory efficiency."""

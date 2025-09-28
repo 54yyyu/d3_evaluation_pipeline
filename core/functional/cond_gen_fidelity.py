@@ -25,12 +25,53 @@ def run_conditional_generation_fidelity_analysis(oracle_model, x_test_tensor, x_
     Returns:
         dict: Results dictionary with fidelity MSE
     """
-    from utils.helpers import load_predictions
+    import torch
+    import numpy as np
+    from tqdm import tqdm
 
     current_date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
     print("Computing model predictions for fidelity analysis...")
-    y_hat_test, y_hat_syn = load_predictions(x_test_tensor, x_synthetic_tensor, oracle_model, model_type)
+
+    # Use batch processing to avoid GPU memory issues
+    batch_size = 8  # Very conservative batch size for large SEI models
+
+    # Determine device
+    if torch.cuda.is_available():
+        device = torch.device('cuda')
+        print(f"Using GPU for batch processing with batch_size={batch_size}")
+    else:
+        device = torch.device('cpu')
+        print(f"Using CPU for batch processing with batch_size={batch_size}")
+
+    # Move model to device
+    oracle_model = oracle_model.to(device)
+    oracle_model.eval()
+
+    def process_in_batches(tensor, desc="Processing"):
+        """Process tensor in batches to avoid memory issues."""
+        predictions = []
+
+        with torch.no_grad():
+            for i in tqdm(range(0, len(tensor), batch_size), desc=desc):
+                batch = tensor[i:i+batch_size].to(device)
+                batch_pred = oracle_model(batch)
+
+                # For SEI model, filter for specific features
+                if model_type.lower() == 'sei':
+                    batch_pred = batch_pred.mean(dim=1, keepdim=True)
+
+                predictions.append(batch_pred.detach().cpu())
+
+                # Clear GPU cache after each batch
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+
+        return torch.cat(predictions, dim=0).numpy()
+
+    # Process test and synthetic sequences in batches
+    y_hat_test = process_in_batches(x_test_tensor, "Processing test sequences")
+    y_hat_syn = process_in_batches(x_synthetic_tensor, "Processing synthetic sequences")
     mse = conditional_generation_fidelity(y_hat_syn, y_hat_test)
     
     results = {
