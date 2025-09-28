@@ -690,6 +690,12 @@ def load_predictions_deepstarr(x_test_tensor, x_synthetic_tensor, deepstarr):
 extractor = EmbeddingExtractor()
 def get_penultimate_embeddings(model, x, model_type='deepstarr', batch_size=8):
     """Get penultimate embeddings from model with batch processing (works with DeepSTARR, MPRALegNet, and SEI)."""
+    from tqdm import tqdm
+
+    # Check if SEI model and raise NotImplementedError
+    if model_type.lower() == 'sei':
+        raise NotImplementedError("Fréchet distance analysis is not implemented for SEI models due to architectural differences.")
+
     # Determine device
     if torch.cuda.is_available():
         device = torch.device('cuda')
@@ -708,9 +714,6 @@ def get_penultimate_embeddings(model, x, model_type='deepstarr', batch_size=8):
     elif model_type.lower() in ['mpralegnet', 'lentimpra']:
         # For MPRALegNet, hook into the last layer before output
         target_layer = 'model.head.2'  # This is the activation before final linear layer
-    elif model_type.lower() == 'sei':
-        # For SEI, hook into the spline transformation layer
-        target_layer = 'model.spline_tr.1'  # BSplineTransformation layer
     else:
         raise ValueError(f"Unsupported model type: {model_type}")
 
