@@ -487,7 +487,7 @@ def load_mpralegnet(oracle_path):
                 ) from e
         raise
 
-def upgrade_state_dict(state_dict, prefixes=["encoder.sentence_encoder.", "encoder."]):
+def upgrade_state_dict(state_dict, prefixes=["encoder.sentence_encoder.", "encoder.", "module."]):
     """Removes prefixes from state dict keys for SEI model loading."""
     pattern = re.compile("^" + "|".join(prefixes))
     state_dict = {pattern.sub("", name): param for name, param in state_dict.items()}
@@ -551,7 +551,7 @@ def load_sei_model(oracle_path):
 
             print(f"✓ Checkpoint loaded, processing state dict...")
 
-            # Extract state dict
+            # Extract state dict - follow the working example pattern
             if isinstance(checkpoint, dict) and 'state_dict' in checkpoint:
                 state_dict = checkpoint['state_dict']
                 print("✓ Found 'state_dict' key in checkpoint")
@@ -566,38 +566,16 @@ def load_sei_model(oracle_path):
                 raise ValueError(f"Unexpected checkpoint format: {type(checkpoint)}")
 
             print(f"✓ State dict has {len(state_dict)} keys")
-
-            # Handle state dict key mapping for NonStrandSpecific wrapper
-            original_keys = list(state_dict.keys())
             print(f"✓ Sample checkpoint keys: {list(state_dict.keys())[:3]}")
 
-            # Get expected keys from oracle model
-            oracle_keys = set(oracle.state_dict().keys())
-            print(f"✓ Sample oracle keys: {list(oracle_keys)[:3]}")
+            # Follow the working example: upgrade_state_dict with module prefix removal
+            print(f"✓ Cleaning up state dict keys using working example pattern...")
+            state_dict = upgrade_state_dict(state_dict, prefixes=['module.'])
 
-            print(f"✓ Cleaning up state dict keys...")
-            # Clean up checkpoint keys by removing common prefixes first
-            state_dict = upgrade_state_dict(state_dict, prefixes=['module.model.', 'module.', 'model.'])
-
-            # Now check if we need to add 'model.' prefix for NonStrandSpecific wrapper
-            checkpoint_keys = set(state_dict.keys())
-            print(f"✓ Sample cleaned keys: {list(checkpoint_keys)[:3]}")
-
-            # If cleaned checkpoint keys don't have 'model.' prefix but oracle expects them
-            if not any(key.startswith('model.') for key in checkpoint_keys) and any(key.startswith('model.') for key in oracle_keys):
-                print("✓ Adding 'model.' prefix to checkpoint keys for NonStrandSpecific wrapper")
-                new_state_dict = {}
-                for key, value in state_dict.items():
-                    new_key = f'model.{key}'
-                    new_state_dict[new_key] = value
-                state_dict = new_state_dict
-
-            new_keys = list(state_dict.keys())
-            print(f"✓ Final sample keys: {list(state_dict.keys())[:3]}")
-            print(f"✓ State dict key transformation: {len(original_keys)} -> {len(new_keys)} keys")
+            print(f"✓ Sample cleaned keys: {list(state_dict.keys())[:3]}")
 
             print(f"✓ Loading state dict into model...")
-            # Load state dict with strict=False to handle missing/extra keys
+            # Load state dict with strict=False to handle missing/extra keys (like the working example)
             missing_keys, unexpected_keys = oracle.load_state_dict(state_dict, strict=False)
 
             if missing_keys:
