@@ -602,6 +602,14 @@ def load_sei_model(oracle_path):
 
             print("✓ Successfully loaded state dict into model")
 
+        # Try to move model to GPU if available
+        if torch.cuda.is_available() and torch.cuda.device_count() > 0:
+            try:
+                oracle = oracle.to(torch.device('cuda:0'))
+                print(f"✓ Moved SEI model to GPU: {torch.cuda.get_device_name(0)}")
+            except Exception as e:
+                print(f"⚠ Failed to move SEI model to GPU ({e}), keeping on CPU")
+
         # Ensure model is in eval mode
         print(f"✓ Setting model to eval mode...")
         oracle.eval()
@@ -611,6 +619,8 @@ def load_sei_model(oracle_path):
         print(f"✓ Testing model with dummy input...")
         with torch.no_grad():
             dummy_input = torch.randn(1, 4, 4096)
+            # Move test input to same device as model
+            dummy_input = dummy_input.to(next(oracle.parameters()).device)
             dummy_output = oracle(dummy_input)
             print(f"✓ Model test successful - output shape: {dummy_output.shape}")
 
@@ -635,18 +645,22 @@ def load_oracle_model(oracle_path, model_type='deepstarr'):
 
 def load_predictions(x_test_tensor, x_synthetic_tensor, oracle_model, model_type='deepstarr'):
     """Load predictions from oracle model (works with DeepSTARR, MPRALegNet, and SEI)."""
-    # Detect and use GPU if available, otherwise use CPU
+    # Use the same GPU detection pattern as discriminability analysis
     if torch.cuda.is_available():
         device = torch.device('cuda')
-        print(f"Using GPU: {torch.cuda.get_device_name()}")
+        device_name = "CUDA"
+        try:
+            gpu_name = torch.cuda.get_device_name(0)
+            device_name = f"CUDA ({gpu_name})"
+        except:
+            pass
+        print(f"Using {device_name} for predictions")
     else:
         device = torch.device('cpu')
-        print("Using CPU")
+        print("Using CPU for predictions")
 
-    # Move model to device
+    # Move model and tensors to the selected device
     oracle_model = oracle_model.to(device)
-
-    # Ensure tensors are on the same device as the model
     x_test_tensor = x_test_tensor.to(device)
     x_synthetic_tensor = x_synthetic_tensor.to(device)
 
