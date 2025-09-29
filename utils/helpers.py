@@ -279,18 +279,53 @@ def load_oracle_model(oracle_path, model_type='deepstarr'):
         raise ValueError(f"Unsupported model type: {model_type}")
 
 def load_predictions(x_test_tensor, x_synthetic_tensor, oracle_model):
-    """Load predictions from oracle model (works with both DeepSTARR and MPRALegNet)."""
-    # Ensure tensors are on the same device as the model
+    """Load predictions from oracle model (works with both DeepSTARR and MPRALegNet).
+
+    Runs inference in batches to avoid oversized tensors that can trigger 32-bit
+    indexing limitations on some CUDA ops. Only per-batch tensors are moved to
+    the device; results are collected on CPU.
+    """
+    # Ensure float32 dtype
+    x_test_tensor = x_test_tensor.float()
+    x_synthetic_tensor = x_synthetic_tensor.float()
+
+    # Determine device from model
     device = next(oracle_model.parameters()).device
-    x_test_tensor = x_test_tensor.to(device)
-    x_synthetic_tensor = x_synthetic_tensor.to(device)
 
-    #run model predictions
-    y_hat_test = oracle_model(x_test_tensor)
-    y_hat_syn = oracle_model(x_synthetic_tensor)
+    # Choose a conservative batch size; allow override via env
+    try:
+        default_bs = int(os.environ.get("D3_INFER_BATCH_SIZE", "1024"))
+    except ValueError:
+        default_bs = 1024
 
-    #returns numpy arrays of oracle predictions from samples and x test
-    return y_hat_test.detach().cpu().numpy(), y_hat_syn.detach().cpu().numpy()
+    batch_size = max(1, default_bs)
+
+    oracle_model.eval()
+
+    y_test_chunks = []
+    y_syn_chunks = []
+
+    with torch.no_grad():
+        # Iterate x_test in batches
+        num_test = x_test_tensor.shape[0]
+        for start in range(0, num_test, batch_size):
+            end = min(start + batch_size, num_test)
+            batch = x_test_tensor[start:end].to(device, non_blocking=True)
+            preds = oracle_model(batch)
+            y_test_chunks.append(preds.detach().cpu())
+
+        # Iterate x_synthetic in batches
+        num_syn = x_synthetic_tensor.shape[0]
+        for start in range(0, num_syn, batch_size):
+            end = min(start + batch_size, num_syn)
+            batch = x_synthetic_tensor[start:end].to(device, non_blocking=True)
+            preds = oracle_model(batch)
+            y_syn_chunks.append(preds.detach().cpu())
+
+    y_hat_test = torch.cat(y_test_chunks, dim=0).numpy() if y_test_chunks else np.empty((0,))
+    y_hat_syn = torch.cat(y_syn_chunks, dim=0).numpy() if y_syn_chunks else np.empty((0,))
+
+    return y_hat_test, y_hat_syn
 
 def load_predictions_deepstarr(x_test_tensor, x_synthetic_tensor, deepstarr):
     """Legacy function - use load_predictions instead."""
