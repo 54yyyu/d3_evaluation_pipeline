@@ -195,9 +195,16 @@ def load_data_and_model(args):
     deepstarr = load_deepstarr(args.model)
     
     # Load sample sequences for attribution analysis
-    samples = np.load(args.samples)
-    sample_seqs = samples['arr_0']
-    sample_seqs = torch.tensor(sample_seqs, dtype=torch.float32)
+    if args.samples.endswith('.npz'):
+        samples = np.load(args.samples)
+        sample_seqs = samples['arr_0']
+        sample_seqs = torch.tensor(sample_seqs, dtype=torch.float32)
+    elif args.samples.endswith('.h5'):
+        with h5py.File(args.samples, 'r') as f:
+            sample_seqs = f['sequences_onehot'][()]
+            sample_seqs = torch.tensor(sample_seqs, dtype=torch.float32)
+    else:
+        raise ValueError(f"Unsupported file type: {args.samples}")
     
     # Load test data for attribution analysis
     DeepSTARR_data = h5py.File(args.data, 'r')

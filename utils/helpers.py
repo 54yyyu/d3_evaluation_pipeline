@@ -19,21 +19,32 @@ class EmbeddingExtractor:
 
 def extract_data(samples_file_path, deepSTARR_data):
    #load samples from .npz file
-    data = load(samples_file_path)
-    samples = []
-    lst = data.files
-    for item in lst:
-        samples.append(data[item])
+    if samples_file_path.endswith('.npz'):
+        data = load(samples_file_path)
+        samples = []
+        lst = data.files
+        for item in lst:
+            samples.append(data[item])
+
+        #transpose samples to get shape (41186, 4, 249)
+        x_synthetic = np.transpose(samples[0], (0, 2, 1))
+    elif samples_file_path.endswith('.h5'):
+        with h5py.File(samples_file_path, 'r') as f:
+            samples = f['sequences_onehot'][()]
+            # check the shape of samples and transpose if needed
+            if samples.shape != (41186, 4, 249):
+                x_synthetic = np.transpose(samples, (0, 2, 1))
+            else:
+                x_synthetic = samples
+    else:
+        raise ValueError(f"Unsupported file type: {samples_file_path}")
 
     #load in data
     with h5py.File(deepSTARR_data, 'r') as f:
         # Access the data for the specific X_test key
         x_test = f['X_test'][()]
         x_train = f['X_train'][()]
-
-    #transpose samples to get shape (41186, 4, 249)
-    x_synthetic = np.transpose(samples[0], (0, 2, 1))
-
+        
     return x_test, x_synthetic, x_train
 
 def numpy_to_tensor(array):

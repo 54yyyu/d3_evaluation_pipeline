@@ -204,7 +204,7 @@ class PL_DeepSTARR(pl.LightningModule):
                  train_max_epochs: int = 100,
                  patience: int = 10,
                  min_delta: float = 0.001,
-                 input_h5_file: str = '/grid/koo/home/yiyu/scratch/d3_evaluation_pipeline/DeepSTARR_data.h5',
+                 input_h5_file: str = '/grid/koo/home/duran/D3-DNA-Discrete-Diffusion/model_zoo/deepstarr/data_files/full-0-new.h5',
                  lr: float = 0.002,
                  initial_ds: bool = True,
                  weight_decay: float = 1e-6,
