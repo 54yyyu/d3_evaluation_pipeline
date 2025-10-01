@@ -60,6 +60,7 @@ The pipeline supports multiple sequence models with different sequence lengths:
 |------------|----------------|--------------|------|
 | **deepstarr** (default) | 249 bp | DeepSTARR | `deepstarr.py` |
 | **mpralegnet** / **lentimpra** | 230 bp | MPRALegNet | `mpralegnet.py` |
+| **multi-oracle** | 230 bp | 3x MPRALegNet | `mpralegnet.py` |
 
 Use the `--model-type` parameter to specify the model:
 ```bash
@@ -68,6 +69,9 @@ python main.py --samples samples.npz --data data.h5 --model deepstarr_model.ckpt
 
 # Lentimpra (230 bp sequences)
 python main.py --samples samples.npz --data data.h5 --model mpralegnet_model.ckpt --model-type lentimpra
+
+# Multi-oracle (3x MPRALegNet models, 230 bp sequences, test data with shape (n,3))
+python main.py --samples samples.npz --data data.h5 --model model1.ckpt --model2 model2.ckpt --model3 model3.ckpt --model-type multi-oracle
 ```
 
 ## Usage
@@ -89,7 +93,40 @@ python main.py --compositional --samples samples.h5 --data DeepSTARR_data.h5 --m
 # Run specific tests
 python main.py --test cond_gen_fidelity --samples samples.npz --data DeepSTARR_data.h5 --model oracle_DeepSTARR_DeepSTARR_data.ckpt
 python main.py --test "cond_gen_fidelity,frechet_distance" --samples samples.h5 --data lentimpra_data.npz --model mpralegnet_model.ckpt --model-type lentimpra
+
+# Multi-oracle with three models predicting different activity dimensions
+python main.py --samples samples.npz --data multi_oracle_data.h5 --model oracle1.ckpt --model2 oracle2.ckpt --model3 oracle3.ckpt --model-type multi-oracle
 ```
+
+### Multi-Oracle Mode
+
+The pipeline supports a multi-oracle setup where **three MPRALegNet models** predict different aspects of sequence activity:
+
+- **Model Architecture**: All three models use MPRALegNet (230 bp sequences)
+- **Test Data Format**: Shape `(n, 3)` where each column is predicted by a different oracle
+- **Prediction Logic**:
+  - Oracle 1 predicts test data `[:, 0]`
+  - Oracle 2 predicts test data `[:, 1]`
+  - Oracle 3 predicts test data `[:, 2]`
+
+**Multi-Oracle Usage**:
+```bash
+# Required: All three model checkpoint files
+python main.py --samples samples.npz --data data.h5 \
+    --model oracle_model_1.ckpt \
+    --model2 oracle_model_2.ckpt \
+    --model3 oracle_model_3.ckpt \
+    --model-type multi-oracle
+
+# With specific analysis types
+python main.py --functional --samples samples.npz --data data.h5 \
+    --model oracle1.ckpt --model2 oracle2.ckpt --model3 oracle3.ckpt \
+    --model-type multi-oracle
+
+# Batch processing with multi-oracle
+python main.py --samples-batch /path/to/batch_folder --data data.h5 \
+    --model oracle1.ckpt --model2 oracle2.ckpt --model3 oracle3.ckpt \
+    --model-type multi-oracle
 
 ### Batch Mode
 
@@ -359,3 +396,10 @@ These tests work directly with sequence data and are model-agnostic:
 ### Supported Oracle Models
 - **DeepSTARR**: For 249 bp sequences (default)
 - **MPRALegNet**: For 230 bp sequences (lentimpra data)
+- **Multi-Oracle**: Three MPRALegNet models for 230 bp sequences with (n,3) test data
+
+#### Multi-Oracle Analysis Notes
+- **Functional Similarity Tests**: Each oracle contributes predictions that are combined into (n,3) arrays
+- **Fréchet Distance**: Uses concatenated embeddings from all three models
+- **Sequence/Compositional Tests**: Work the same as single oracle (model-agnostic)
+- **Test Data Requirements**: Must have shape (n,3) where each column corresponds to one oracle's target

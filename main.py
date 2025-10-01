@@ -28,7 +28,7 @@ import json
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from deepstarr import PL_DeepSTARR
-from utils.helpers import extract_data, extract_lentimpra_data, numpy_to_tensor, load_deepstarr, load_oracle_model
+from utils.helpers import extract_data, extract_lentimpra_data, numpy_to_tensor, load_deepstarr, load_oracle_model, load_multi_oracle_models
 # Legacy imports removed - using only modular imports now
 
 # New modular imports
@@ -60,12 +60,20 @@ def parse_arguments():
 
     parser.add_argument('--model', type=str,
                        default=os.getenv('MODEL_FILE', 'oracle_DeepSTARR_DeepSTARR_data.ckpt'),
-                       help='Path to model checkpoint file')
+                       help='Path to model checkpoint file (for single model) or first model (for multi-oracle)')
+
+    parser.add_argument('--model2', type=str,
+                       default=os.getenv('MODEL2_FILE', None),
+                       help='Path to second model checkpoint file (for multi-oracle setup)')
+
+    parser.add_argument('--model3', type=str,
+                       default=os.getenv('MODEL3_FILE', None),
+                       help='Path to third model checkpoint file (for multi-oracle setup)')
 
     parser.add_argument('--model-type', type=str,
                        default=os.getenv('MODEL_TYPE', 'deepstarr'),
-                       choices=['deepstarr', 'mpralegnet', 'lentimpra'],
-                       help='Type of oracle model (deepstarr, mpralegnet, or lentimpra)')
+                       choices=['deepstarr', 'mpralegnet', 'lentimpra', 'multi-oracle'],
+                       help='Type of oracle model (deepstarr, mpralegnet, lentimpra, or multi-oracle for three models)')
 
     parser.add_argument('--output-dir', type=str,
                        default=os.getenv('OUTPUT_DIR', 'results'),
@@ -100,15 +108,26 @@ def validate_inputs(args):
     """Validate that all required input files exist."""
     files_to_check = [
         (args.samples, 'Samples file'),
-        (args.data, 'Data file'), 
+        (args.data, 'Data file'),
         (args.model, 'Model file')
     ]
-    
+
+    # Check for multi-oracle setup
+    if args.model_type == 'multi-oracle':
+        if args.model2 is None or args.model3 is None:
+            print("Error: Multi-oracle mode requires --model2 and --model3 arguments")
+            print("Usage: --model path1 --model2 path2 --model3 path3 --model-type multi-oracle")
+            sys.exit(1)
+        files_to_check.extend([
+            (args.model2, 'Model 2 file'),
+            (args.model3, 'Model 3 file')
+        ])
+
     missing_files = []
     for file_path, description in files_to_check:
         if not os.path.exists(file_path):
             missing_files.append(f"{description}: {file_path}")
-    
+
     if missing_files:
         print("Error: Missing required files:")
         for missing in missing_files:
@@ -189,7 +208,7 @@ def load_data_and_model(args):
     print(f"Loading data and model (model type: {args.model_type})...")
 
     # Load data based on model type
-    if args.model_type.lower() in ['mpralegnet', 'lentimpra']:
+    if args.model_type.lower() in ['mpralegnet', 'lentimpra', 'multi-oracle']:
         x_test, x_synthetic, x_train = extract_lentimpra_data(args.samples, args.data)
     else:
         x_test, x_synthetic, x_train = extract_data(args.samples, args.data)
@@ -199,8 +218,11 @@ def load_data_and_model(args):
     x_synthetic_tensor = numpy_to_tensor(x_synthetic)
     x_train_tensor = numpy_to_tensor(x_train)
 
-    # Load oracle model
-    oracle_model = load_oracle_model(args.model, args.model_type)
+    # Load oracle model(s)
+    if args.model_type == 'multi-oracle':
+        oracle_model = load_multi_oracle_models(args.model, args.model2, args.model3)
+    else:
+        oracle_model = load_oracle_model(args.model, args.model_type)
 
     # Load sample sequences for attribution analysis
     if args.samples.endswith('.npz'):
@@ -232,7 +254,7 @@ def load_data_and_model(args):
         # Load from .npz file
         npz_data = np.load(args.data)
 
-        if args.model_type.lower() in ['mpralegnet', 'lentimpra']:
+        if args.model_type.lower() in ['mpralegnet', 'lentimpra', 'multi-oracle']:
             if 'onehot_test' in npz_data.files:
                 x_test_attr = npz_data['onehot_test']
                 if x_test_attr.shape[-1] == 4:  # (n, 230, 4) format
@@ -256,7 +278,7 @@ def load_data_and_model(args):
     else:
         # Load from .h5 file (existing functionality)
         data_file = h5py.File(args.data, 'r')
-        if args.model_type.lower() in ['mpralegnet', 'lentimpra']:
+        if args.model_type.lower() in ['mpralegnet', 'lentimpra', 'multi-oracle']:
             if 'onehot_test' in data_file.keys():
                 X_test = torch.tensor(np.array(data_file['onehot_test']).transpose(0,2,1), dtype=torch.float32)
             else:
@@ -314,14 +336,17 @@ def run_batch_analysis(args):
     
     # Load model and test data once (they're shared across all samples)
     print(f"Loading model and test data (model type: {args.model_type})...")
-    oracle_model = load_oracle_model(args.model, args.model_type)
+    if args.model_type == 'multi-oracle':
+        oracle_model = load_multi_oracle_models(args.model, args.model2, args.model3)
+    else:
+        oracle_model = load_oracle_model(args.model, args.model_type)
 
     # Load test and training data from the data file based on file format and model type
     if args.data.endswith('.npz'):
         # Load from .npz file
         npz_data = np.load(args.data)
 
-        if args.model_type.lower() in ['mpralegnet', 'lentimpra']:
+        if args.model_type.lower() in ['mpralegnet', 'lentimpra', 'multi-oracle']:
             # Try different naming conventions for test data
             if 'onehot_test' in npz_data.files:
                 x_test = npz_data['onehot_test']
@@ -364,7 +389,7 @@ def run_batch_analysis(args):
     else:
         # Load from .h5 file (existing functionality)
         with h5py.File(args.data, 'r') as f:
-            if args.model_type.lower() in ['mpralegnet', 'lentimpra']:
+            if args.model_type.lower() in ['mpralegnet', 'lentimpra', 'multi-oracle']:
                 if 'onehot_test' in f.keys():
                     x_test = f['onehot_test'][()]
                     x_test = np.transpose(x_test, (0, 2, 1))  # Convert to (n, 4, 230)
@@ -471,13 +496,13 @@ def run_single_batch_test(test_name, oracle_model, model_type, x_test_tensor, x_
     """Run a single test for batch mode."""
     if test_name == 'cond_gen_fidelity':
         run_conditional_generation_fidelity_analysis(
-            oracle_model, x_test_tensor, x_synthetic_tensor, output_dir, sample_name)
+            oracle_model, x_test_tensor, x_synthetic_tensor, output_dir, sample_name, model_type)
     elif test_name == 'frechet_distance':
         run_frechet_distance_analysis(
-            oracle_model, x_test_tensor, x_synthetic_tensor, output_dir, sample_name)
+            oracle_model, x_test_tensor, x_synthetic_tensor, output_dir, sample_name, model_type)
     elif test_name == 'predictive_dist_shift':
         run_predictive_distribution_shift_analysis(
-            oracle_model, x_test_tensor, x_synthetic_tensor, output_dir, sample_name)
+            oracle_model, x_test_tensor, x_synthetic_tensor, output_dir, sample_name, model_type)
     elif test_name == 'percent_identity':
         run_percent_identity_analysis(
             x_synthetic_tensor, x_train_tensor, output_dir, sample_name)
@@ -597,16 +622,18 @@ def run_single_modular_test(test_name, data, output_dir, all_results, completed_
     try:
         if test_name == 'cond_gen_fidelity':
             results = run_conditional_generation_fidelity_analysis(
-                data['oracle_model'], data['x_test_tensor'], data['x_synthetic_tensor'], output_dir)
+                data['oracle_model'], data['x_test_tensor'], data['x_synthetic_tensor'], output_dir, model_type=data['model_type'])
         elif test_name == 'frechet_distance':
             if data['model_type'].lower() in ['mpralegnet', 'lentimpra']:
                 print("Fréchet distance analysis not implemented yet for MPRALegNet models.")
                 raise NotImplementedError("Fréchet distance analysis not implemented yet for MPRALegNet models.")
+            elif data['model_type'].lower() == 'multi-oracle':
+                print("Fréchet distance analysis for multi-oracle uses concatenated embeddings from all three models.")
             results = run_frechet_distance_analysis(
-                data['oracle_model'], data['x_test_tensor'], data['x_synthetic_tensor'], output_dir)
+                data['oracle_model'], data['x_test_tensor'], data['x_synthetic_tensor'], output_dir, model_type=data['model_type'])
         elif test_name == 'predictive_dist_shift':
             results = run_predictive_distribution_shift_analysis(
-                data['oracle_model'], data['x_test_tensor'], data['x_synthetic_tensor'], output_dir)
+                data['oracle_model'], data['x_test_tensor'], data['x_synthetic_tensor'], output_dir, model_type=data['model_type'])
         elif test_name == 'percent_identity':
             results = run_percent_identity_analysis(
                 data['x_synthetic_tensor'], data['x_train_tensor'], output_dir)

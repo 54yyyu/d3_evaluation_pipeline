@@ -7,7 +7,7 @@ def conditional_generation_fidelity(activity1, activity2):
     """Compute MSE between predicted activities."""
     return np.mean((activity1 - activity2)**2)
 
-def run_conditional_generation_fidelity_analysis(oracle_model, x_test_tensor, x_synthetic_tensor, output_dir=".", sample_name=None):
+def run_conditional_generation_fidelity_analysis(oracle_model, x_test_tensor, x_synthetic_tensor, output_dir=".", sample_name=None, model_type='deepstarr'):
     """
     Run conditional generation fidelity analysis.
 
@@ -15,21 +15,26 @@ def run_conditional_generation_fidelity_analysis(oracle_model, x_test_tensor, x_
     by computing MSE between oracle predictions.
 
     Args:
-        oracle_model: The oracle model (DeepSTARR or MPRALegNet)
+        oracle_model: The oracle model (DeepSTARR, MPRALegNet, or tuple of 3 models for multi-oracle)
         x_test_tensor: Test sequences tensor
         x_synthetic_tensor: Synthetic sequences tensor
         output_dir: Directory to save results
         sample_name: Name of sample for batch processing (optional)
+        model_type: Type of model ('deepstarr', 'lentimpra', 'multi-oracle')
 
     Returns:
         dict: Results dictionary with fidelity MSE
     """
-    from utils.helpers import load_predictions
-    
+    from utils.helpers import load_predictions, load_multi_oracle_predictions
+
     current_date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    
+
     print("Computing model predictions for fidelity analysis...")
-    y_hat_test, y_hat_syn = load_predictions(x_test_tensor, x_synthetic_tensor, oracle_model)
+    if model_type == 'multi-oracle':
+        y_hat_test, y_hat_syn = load_multi_oracle_predictions(x_test_tensor, x_synthetic_tensor, oracle_model)
+    else:
+        y_hat_test, y_hat_syn = load_predictions(x_test_tensor, x_synthetic_tensor, oracle_model)
+
     mse = conditional_generation_fidelity(y_hat_syn, y_hat_test)
     
     results = {

@@ -275,8 +275,34 @@ def load_oracle_model(oracle_path, model_type='deepstarr'):
         return load_deepstarr(oracle_path)
     elif model_type.lower() in ['mpralegnet', 'lentimpra']:
         return load_mpralegnet(oracle_path)
+    elif model_type.lower() == 'multi-oracle':
+        raise ValueError("Use load_multi_oracle_models() for multi-oracle setup")
     else:
         raise ValueError(f"Unsupported model type: {model_type}")
+
+def load_multi_oracle_models(model_path1, model_path2, model_path3):
+    """
+    Load three MPRALegNet oracle models for multi-oracle setup.
+
+    Args:
+        model_path1: Path to first oracle model
+        model_path2: Path to second oracle model
+        model_path3: Path to third oracle model
+
+    Returns:
+        Tuple of (model1, model2, model3)
+    """
+    print("Loading multi-oracle models (3 MPRALegNet models)...")
+    model1 = load_mpralegnet(model_path1)
+    print(f"✓ Loaded oracle model 1 from {model_path1}")
+
+    model2 = load_mpralegnet(model_path2)
+    print(f"✓ Loaded oracle model 2 from {model_path2}")
+
+    model3 = load_mpralegnet(model_path3)
+    print(f"✓ Loaded oracle model 3 from {model_path3}")
+
+    return model1, model2, model3
 
 def load_predictions(x_test_tensor, x_synthetic_tensor, oracle_model):
     """Load predictions from oracle model (works with both DeepSTARR and MPRALegNet)."""
@@ -291,6 +317,43 @@ def load_predictions(x_test_tensor, x_synthetic_tensor, oracle_model):
 
     #returns numpy arrays of oracle predictions from samples and x test
     return y_hat_test.detach().cpu().numpy(), y_hat_syn.detach().cpu().numpy()
+
+def load_multi_oracle_predictions(x_test_tensor, x_synthetic_tensor, oracle_models):
+    """
+    Load predictions from three oracle models for multi-oracle setup.
+
+    Args:
+        x_test_tensor: Test sequences tensor (n, 4, 230)
+        x_synthetic_tensor: Synthetic sequences tensor (n, 4, 230)
+        oracle_models: Tuple of (model1, model2, model3)
+
+    Returns:
+        Tuple of (y_hat_test, y_hat_syn) where each is shape (n, 3)
+        - y_hat_test[:, 0] = predictions from model1
+        - y_hat_test[:, 1] = predictions from model2
+        - y_hat_test[:, 2] = predictions from model3
+    """
+    model1, model2, model3 = oracle_models
+
+    # Get device from first model (assuming all on same device)
+    device = next(model1.parameters()).device
+    x_test_tensor = x_test_tensor.to(device)
+    x_synthetic_tensor = x_synthetic_tensor.to(device)
+
+    # Get predictions from each model - each returns (n, 1) for MPRALegNet
+    y_hat_test_1 = model1(x_test_tensor).detach().cpu().numpy()  # (n, 1)
+    y_hat_test_2 = model2(x_test_tensor).detach().cpu().numpy()  # (n, 1)
+    y_hat_test_3 = model3(x_test_tensor).detach().cpu().numpy()  # (n, 1)
+
+    y_hat_syn_1 = model1(x_synthetic_tensor).detach().cpu().numpy()  # (n, 1)
+    y_hat_syn_2 = model2(x_synthetic_tensor).detach().cpu().numpy()  # (n, 1)
+    y_hat_syn_3 = model3(x_synthetic_tensor).detach().cpu().numpy()  # (n, 1)
+
+    # Concatenate to create (n, 3) arrays
+    y_hat_test = np.concatenate([y_hat_test_1, y_hat_test_2, y_hat_test_3], axis=1)  # (n, 3)
+    y_hat_syn = np.concatenate([y_hat_syn_1, y_hat_syn_2, y_hat_syn_3], axis=1)      # (n, 3)
+
+    return y_hat_test, y_hat_syn
 
 def load_predictions_deepstarr(x_test_tensor, x_synthetic_tensor, deepstarr):
     """Legacy function - use load_predictions instead."""
@@ -329,6 +392,30 @@ def get_penultimate_embeddings(model, x, model_type='deepstarr'):
     handle.remove()
 
     return extractor.embedding
+
+def get_multi_oracle_embeddings(oracle_models, x, model_type='lentimpra'):
+    """
+    Get penultimate embeddings from three oracle models and concatenate them.
+
+    Args:
+        oracle_models: Tuple of (model1, model2, model3)
+        x: Input tensor (n, 4, 230)
+        model_type: Model type (should be 'lentimpra' for multi-oracle)
+
+    Returns:
+        Concatenated embeddings tensor (n, embedding_dim * 3)
+    """
+    model1, model2, model3 = oracle_models
+
+    # Get embeddings from each model
+    embedding1 = get_penultimate_embeddings(model1, x, model_type)  # (n, embedding_dim)
+    embedding2 = get_penultimate_embeddings(model2, x, model_type)  # (n, embedding_dim)
+    embedding3 = get_penultimate_embeddings(model3, x, model_type)  # (n, embedding_dim)
+
+    # Concatenate embeddings along feature dimension
+    concatenated_embeddings = torch.cat([embedding1, embedding2, embedding3], dim=1)  # (n, embedding_dim * 3)
+
+    return concatenated_embeddings
 
 #preparing data to put into kmer_statistics function
 def put_deepstarr_into_NLA(x_test_tensor, x_synthetic_tensor):

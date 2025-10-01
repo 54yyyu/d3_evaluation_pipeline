@@ -10,29 +10,33 @@ def predictive_distribution_shift(y_hat_test, y_hat_syn):
     ks_statistic = scipy.stats.kstest(y_hat_test, y_hat_syn).statistic.mean()
     return ks_statistic
 
-def run_predictive_distribution_shift_analysis(deepstarr, x_test_tensor, x_synthetic_tensor, output_dir=".", sample_name=None):
+def run_predictive_distribution_shift_analysis(oracle_model, x_test_tensor, x_synthetic_tensor, output_dir=".", sample_name=None, model_type='deepstarr'):
     """
     Run predictive distribution shift analysis.
-    
-    Uses the Kolmogorov-Smirnov statistic to compare empirical cumulative distribution 
+
+    Uses the Kolmogorov-Smirnov statistic to compare empirical cumulative distribution
     functions of oracle predictions for generated and real sequences.
-    
+
     Args:
-        deepstarr: The DeepSTARR oracle model
+        oracle_model: The oracle model (DeepSTARR, MPRALegNet, or tuple of 3 models for multi-oracle)
         x_test_tensor: Test sequences tensor
         x_synthetic_tensor: Synthetic sequences tensor
         output_dir: Directory to save results
         sample_name: Name of sample for batch processing (optional)
-        
+        model_type: Type of model ('deepstarr', 'lentimpra', 'multi-oracle')
+
     Returns:
         dict: Results dictionary with distribution shift metric
     """
-    from utils.helpers import load_predictions
-    
+    from utils.helpers import load_predictions, load_multi_oracle_predictions
+
     current_date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    
+
     print("Computing model predictions for distribution shift analysis...")
-    y_hat_test, y_hat_syn = load_predictions(x_test_tensor, x_synthetic_tensor, deepstarr)
+    if model_type == 'multi-oracle':
+        y_hat_test, y_hat_syn = load_multi_oracle_predictions(x_test_tensor, x_synthetic_tensor, oracle_model)
+    else:
+        y_hat_test, y_hat_syn = load_predictions(x_test_tensor, x_synthetic_tensor, oracle_model)
     
     print("Computing predictive distribution shift...")
     ks_statistic = predictive_distribution_shift(y_hat_test, y_hat_syn)
