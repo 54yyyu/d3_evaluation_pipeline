@@ -2,6 +2,7 @@ import os
 import pandas as pd
 import numpy as np
 import h5py
+import torch
 from datetime import datetime
 import glob
 import sys
@@ -10,100 +11,154 @@ from pathlib import Path
 def discover_batch_samples(batch_dir, csv_filename="metadata.csv"):
     """
     Discover samples in batch directory and handle CSV metadata.
-    
+
     Args:
-        batch_dir: Path to directory containing NPZ files or subdirectories
+        batch_dir: Path to directory containing sample files (.npz, .h5, .pt) or subdirectories
         csv_filename: Name of CSV file for metadata
-    
+
     Returns:
         List of dictionaries with sample metadata, or exits if CSV template created
     """
     batch_dir = Path(batch_dir)
     csv_path = batch_dir / csv_filename
-    
+
     # Check if CSV already exists
     if csv_path.exists():
         print(f"Using existing metadata file: {csv_path}")
         df = pd.read_csv(csv_path)
         return df.to_dict('records')
-    
+
     # CSV doesn't exist - need to create template
     print(f"CSV metadata file not found: {csv_path}")
     print("Creating template...")
-    
-    # Detect directory structure
-    npz_files = list(batch_dir.glob("*.npz"))
+
+    # Detect directory structure - look for multiple file types
+    sample_files = []
+    for pattern in ["*.npz", "*.h5", "*.hdf5", "*.pt", "*.pth"]:
+        sample_files.extend(batch_dir.glob(pattern))
+
     subdirs = [d for d in batch_dir.iterdir() if d.is_dir()]
-    
+
     samples = []
-    
-    if npz_files and not subdirs:
-        # Flat structure: folder/*.npz
-        print(f"Detected flat structure with {len(npz_files)} NPZ files")
-        for npz_file in sorted(npz_files):
-            sample_name = npz_file.stem  # filename without extension
+
+    if sample_files and not subdirs:
+        # Flat structure: folder/*.{npz,h5,pt}
+        print(f"Detected flat structure with {len(sample_files)} sample files")
+        for sample_file in sorted(sample_files):
+            sample_name = sample_file.stem  # filename without extension
             samples.append({
                 'sample_name': sample_name,
-                'file_path': str(npz_file.relative_to(batch_dir)),
+                'file_path': str(sample_file.relative_to(batch_dir)),
                 'created_date': datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
             })
-    
+
     elif subdirs:
-        # Nested structure: folder/subfolder/*.npz
+        # Nested structure: folder/subfolder/*.{npz,h5,pt}
         print(f"Detected nested structure with {len(subdirs)} subdirectories")
         for subdir in sorted(subdirs):
-            subdir_npz = list(subdir.glob("*.npz"))
-            if subdir_npz:
-                for npz_file in sorted(subdir_npz):
+            subdir_samples = []
+            for pattern in ["*.npz", "*.h5", "*.hdf5", "*.pt", "*.pth"]:
+                subdir_samples.extend(subdir.glob(pattern))
+
+            if subdir_samples:
+                for sample_file in sorted(subdir_samples):
                     # Create unique sample name using subfolder and filename
-                    sample_name = f"{subdir.name}_{npz_file.stem}"
+                    sample_name = f"{subdir.name}_{sample_file.stem}"
                     samples.append({
                         'sample_name': sample_name,
-                        'file_path': str(npz_file.relative_to(batch_dir)),
+                        'file_path': str(sample_file.relative_to(batch_dir)),
                         'created_date': datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
                     })
             else:
-                print(f"Warning: No NPZ files found in {subdir}")
-    
+                print(f"Warning: No sample files found in {subdir}")
+
     else:
-        print("Error: No NPZ files found in batch directory")
+        print("Error: No sample files (.npz, .h5, .pt) found in batch directory")
         sys.exit(1)
-    
+
     # Create template CSV
     df = pd.DataFrame(samples)
     df.to_csv(csv_path, index=False)
-    
+
     print(f"Template CSV created: {csv_path}")
     print(f"Found {len(samples)} sample files")
     print("CSV wasn't found, template created, can modify the sample names before running again (if using default names just run again)")
-    
+
     # Exit the program
     sys.exit(0)
 
 def load_batch_sample(batch_dir, sample_record):
     """
     Load a single sample from batch directory.
-    
+
     Args:
         batch_dir: Path to batch directory
         sample_record: Dictionary with sample metadata from CSV
-    
+
     Returns:
-        Tuple of (sample_name, npz_data) or None if failed
+        Tuple of (sample_name, data) or None if failed
+        Data can be npz object, numpy array, or torch tensor depending on file type
     """
     batch_dir = Path(batch_dir)
     file_path = batch_dir / sample_record['file_path']
     sample_name = sample_record['sample_name']
-    
+
     try:
         if not file_path.exists():
             print(f"Warning: File not found: {file_path}")
             return None
-            
-        npz_data = np.load(file_path)
-        print(f"Loaded sample '{sample_name}' from {file_path}")
-        return sample_name, npz_data
-        
+
+        # Determine file type and load accordingly
+        if file_path.suffix == '.npz':
+            data = np.load(file_path)
+            print(f"Loaded NPZ sample '{sample_name}' from {file_path}")
+            return sample_name, data
+
+        elif file_path.suffix in ['.pt', '.pth']:
+            # Load PyTorch tensor
+            tensor_data = torch.load(file_path, map_location='cpu')
+            if isinstance(tensor_data, torch.Tensor):
+                data = tensor_data.numpy()
+            else:
+                print(f"Warning: Expected tensor in {file_path}, got {type(tensor_data)}")
+                return None
+            print(f"Loaded PyTorch sample '{sample_name}' from {file_path}")
+            return sample_name, data
+
+        elif file_path.suffix in ['.h5', '.hdf5']:
+            # Try loading as PyTorch first (some .h5 files are actually PyTorch)
+            try:
+                tensor_data = torch.load(file_path, map_location='cpu')
+                if isinstance(tensor_data, torch.Tensor):
+                    data = tensor_data.numpy()
+                    print(f"Loaded PyTorch (h5 extension) sample '{sample_name}' from {file_path}")
+                    return sample_name, data
+            except:
+                pass
+
+            # If that fails, try as HDF5
+            try:
+                with h5py.File(file_path, 'r') as f:
+                    # Load first key as data
+                    if 'arr_0' in f.keys():
+                        data = f['arr_0'][()]
+                    elif 'samples' in f.keys():
+                        data = f['samples'][()]
+                    elif 'x_synthetic' in f.keys():
+                        data = f['x_synthetic'][()]
+                    else:
+                        first_key = list(f.keys())[0]
+                        data = f[first_key][()]
+                        print(f"Warning: Using key '{first_key}' for sample data")
+                print(f"Loaded HDF5 sample '{sample_name}' from {file_path}")
+                return sample_name, data
+            except Exception as h5_error:
+                print(f"Error loading as HDF5: {h5_error}")
+                return None
+        else:
+            print(f"Warning: Unsupported file type: {file_path.suffix}")
+            return None
+
     except Exception as e:
         print(f"Error loading {file_path}: {e}")
         return None

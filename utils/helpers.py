@@ -392,13 +392,13 @@ def load_multi_oracle_predictions(x_test_tensor, x_synthetic_tensor, oracle_mode
     x_synthetic_tensor = x_synthetic_tensor.to(device)
 
     # Get predictions from each model - each returns (n, 1) for MPRALegNet
-    y_hat_test_1 = model1(x_test_tensor).detach().cpu().numpy()  # (n, 1)
-    y_hat_test_2 = model2(x_test_tensor).detach().cpu().numpy()  # (n, 1)
-    y_hat_test_3 = model3(x_test_tensor).detach().cpu().numpy()  # (n, 1)
+    y_hat_test_1 = model1(x_test_tensor).detach().cpu().numpy().reshape(-1, 1)  # (n, 1)
+    y_hat_test_2 = model2(x_test_tensor).detach().cpu().numpy().reshape(-1, 1)  # (n, 1)
+    y_hat_test_3 = model3(x_test_tensor).detach().cpu().numpy().reshape(-1, 1)  # (n, 1)
 
-    y_hat_syn_1 = model1(x_synthetic_tensor).detach().cpu().numpy()  # (n, 1)
-    y_hat_syn_2 = model2(x_synthetic_tensor).detach().cpu().numpy()  # (n, 1)
-    y_hat_syn_3 = model3(x_synthetic_tensor).detach().cpu().numpy()  # (n, 1)
+    y_hat_syn_1 = model1(x_synthetic_tensor).detach().cpu().numpy().reshape(-1, 1)  # (n, 1)
+    y_hat_syn_2 = model2(x_synthetic_tensor).detach().cpu().numpy().reshape(-1, 1)  # (n, 1)
+    y_hat_syn_3 = model3(x_synthetic_tensor).detach().cpu().numpy().reshape(-1, 1)  # (n, 1)
 
     # Concatenate to create (n, 3) arrays
     y_hat_test = np.concatenate([y_hat_test_1, y_hat_test_2, y_hat_test_3], axis=1)  # (n, 3)

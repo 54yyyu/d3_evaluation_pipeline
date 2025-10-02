@@ -52,7 +52,7 @@ def parse_arguments():
                        help='Path to samples file (.npz or .h5 format) containing synthetic sequences')
     
     parser.add_argument('--samples-batch', type=str,
-                       help='Path to directory containing multiple NPZ files for batch processing')
+                       help='Path to directory containing multiple sample files (.npz, .h5, .pt) for batch processing')
     
     parser.add_argument('--data', type=str,
                        default=os.getenv('DATA_FILE', 'DeepSTARR_data.h5'),
@@ -459,20 +459,37 @@ def run_batch_analysis(args):
             print(f"Skipping {sample_name} due to loading error")
             continue
             
-        sample_name_loaded, npz_data = sample_result
-        
-        # Extract synthetic sequences from NPZ
+        sample_name_loaded, sample_data = sample_result
+
+        # Extract synthetic sequences from data (supports NPZ, H5, and PT formats)
         try:
-            x_synthetic = np.transpose(npz_data['arr_0'], (0, 2, 1))  # Convert to (N, 4, L)
+            # Handle different data structures
+            if isinstance(sample_data, np.lib.npyio.NpzFile):
+                # NPZ file - extract from 'arr_0' key
+                raw_data = sample_data['arr_0']
+            elif isinstance(sample_data, np.ndarray):
+                # Already a numpy array (from .h5 or .pt files)
+                raw_data = sample_data
+            else:
+                raise ValueError(f"Unexpected data type: {type(sample_data)}")
+
+            # Transpose to (N, 4, L) format if needed
+            if raw_data.shape[-1] == 4:
+                x_synthetic = np.transpose(raw_data, (0, 2, 1))  # (N, L, 4) -> (N, 4, L)
+            else:
+                x_synthetic = raw_data  # Already in (N, 4, L) format
+
             x_synthetic_tensor = numpy_to_tensor(x_synthetic)
-            
-            # For attribution analysis
-            sample_seqs = torch.tensor(npz_data['arr_0'], dtype=torch.float32)
-            
+
+            # For attribution analysis - use original format
+            sample_seqs = torch.tensor(raw_data, dtype=torch.float32)
+
             print(f"Loaded {len(x_synthetic)} synthetic sequences for {sample_name}")
-            
+
         except Exception as e:
             print(f"Error processing {sample_name}: {e}")
+            import traceback
+            traceback.print_exc()
             continue
         
         # Run each analysis for this sample
