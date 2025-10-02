@@ -139,33 +139,49 @@ def extract_data(samples_file_path, data_file):
     return x_test, x_synthetic, x_train
 
 def extract_lentimpra_data(samples_file_path, data_file):
-    """Extract data for lentimpra with 230-length sequences from either .h5 or .npz files."""
-    # Load samples from .npz or .h5 file
+    """Extract data for lentimpra with 230-length sequences from .h5, .npz, or .pt files."""
+    # Load samples from .npz, .h5, or .pt file
     if samples_file_path.endswith('.npz'):
         data = load(samples_file_path)
         samples = []
         lst = data.files
         for item in lst:
             samples.append(data[item])
+    elif samples_file_path.endswith(('.pt', '.pth')):
+        # Load PyTorch tensor file
+        tensor_data = torch.load(samples_file_path, map_location='cpu')
+        if isinstance(tensor_data, torch.Tensor):
+            samples = [tensor_data.numpy()]
+        else:
+            raise ValueError(f"Expected tensor in .pt file, got {type(tensor_data)}")
     elif samples_file_path.endswith('.h5') or samples_file_path.endswith('.hdf5'):
-        with h5py.File(samples_file_path, 'r') as f:
-            samples = []
-            # Try common naming conventions for samples
-            if 'arr_0' in f.keys():
-                samples.append(f['arr_0'][()])
-            elif 'samples' in f.keys():
-                samples.append(f['samples'][()])
-            elif 'x_synthetic' in f.keys():
-                samples.append(f['x_synthetic'][()])
-            elif 'synthetic_data' in f.keys():
-                samples.append(f['synthetic_data'][()])
+        # First try to load as PyTorch (some files have .h5 extension but are actually PyTorch)
+        try:
+            tensor_data = torch.load(samples_file_path, map_location='cpu')
+            if isinstance(tensor_data, torch.Tensor):
+                samples = [tensor_data.numpy()]
             else:
-                # Take the first available key
-                first_key = list(f.keys())[0]
-                samples.append(f[first_key][()])
-                print(f"Warning: Using key '{first_key}' for samples from H5 file")
+                raise ValueError(f"Expected tensor in file, got {type(tensor_data)}")
+        except:
+            # If that fails, try as actual HDF5
+            with h5py.File(samples_file_path, 'r') as f:
+                samples = []
+                # Try common naming conventions for samples
+                if 'arr_0' in f.keys():
+                    samples.append(f['arr_0'][()])
+                elif 'samples' in f.keys():
+                    samples.append(f['samples'][()])
+                elif 'x_synthetic' in f.keys():
+                    samples.append(f['x_synthetic'][()])
+                elif 'synthetic_data' in f.keys():
+                    samples.append(f['synthetic_data'][()])
+                else:
+                    # Take the first available key
+                    first_key = list(f.keys())[0]
+                    samples.append(f[first_key][()])
+                    print(f"Warning: Using key '{first_key}' for samples from H5 file")
     else:
-        raise ValueError(f"Unsupported samples file format. Expected .npz or .h5/.hdf5, got: {samples_file_path}")
+        raise ValueError(f"Unsupported samples file format. Expected .npz, .h5/.hdf5, or .pt/.pth, got: {samples_file_path}")
 
     # Load training/test data based on file format
     if data_file.endswith('.npz'):
