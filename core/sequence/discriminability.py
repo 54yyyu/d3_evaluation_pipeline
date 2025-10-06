@@ -42,6 +42,9 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from deepstarr import DeepSTARR
 
+# Set CUBLAS workspace config for deterministic behavior with CUDA >= 10.2
+os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':4096:8'
+
 def prep_data_for_classification(x_test_tensor, x_synthetic_tensor):
     """Prepare data for discriminability classification."""
     x_train = np.vstack([x_test_tensor.detach().cpu().numpy(), x_synthetic_tensor.detach().cpu().numpy()])
