@@ -394,7 +394,21 @@ def run_batch_analysis(args):
         # Load from .npz file
         npz_data = np.load(args.data)
 
-        if args.model_type.lower() in ['mpralegnet', 'lentimpra']:
+        # Detect promoter dataset format (train/valid/test present)
+        promoter_format = all(k in npz_data.files for k in ['train', 'test', 'valid'])
+
+        if promoter_format:
+            # Promoter dataset format: each split has shape (N, seq_len, 6)
+            # where [:, :, :4] are sequences and [:, :, 4:] are activities
+            test_data = npz_data['test']
+            train_data = npz_data['train']
+
+            # Extract sequences (first 4 channels) and transpose to (N, 4, seq_len)
+            x_test = test_data[:, :, :4]
+            x_train = train_data[:, :, :4]
+            if x_test.shape != 
+            
+        elif args.model_type.lower() in ['mpralegnet', 'lentimpra']:
             # Try different naming conventions for test data
             if 'onehot_test' in npz_data.files:
                 x_test = npz_data['onehot_test']
@@ -456,8 +470,13 @@ def run_batch_analysis(args):
     x_test_tensor = numpy_to_tensor(x_test)
     x_train_tensor = numpy_to_tensor(x_train)
     
-    # For attribution analysis, convert test data to proper format
-    X_test = torch.tensor(np.array(x_test).transpose(0,2,1), dtype=torch.float32)
+    # For attribution analysis, ensure X_test has shape (N, 4, L)
+    if 'promoter_format' in locals() and promoter_format:
+        # Already (N, 4, L)
+        X_test = torch.tensor(x_test, dtype=torch.float32)
+    else:
+        # Convert from (N, L, 4) to (N, 4, L) if needed
+        X_test = torch.tensor(np.array(x_test).transpose(0,2,1), dtype=torch.float32)
     
     print(f"Loaded {len(x_test)} test sequences")
     print(f"Loaded {len(x_train)} training sequences")

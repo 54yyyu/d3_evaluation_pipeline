@@ -1,0 +1,81 @@
+Traceback (most recent call last):
+  File "/grid/koo/home/duran/d3_evaluation_pipeline/main.py", line 789, in <module>
+    main()
+  File "/grid/koo/home/duran/d3_evaluation_pipeline/main.py", line 606, in main
+    run_batch_analysis(args)
+  File "/grid/koo/home/duran/d3_evaluation_pipeline/main.py", line 428, in run_batch_analysis
+    raise KeyError(f"Could not find test data in .npz file. Available keys: {npz_data.files}")
+KeyError: "Could not find test data in .npz file. Available keys: ['train', 'valid', 'test']"
+Traceback (most recent call last):
+  File "/grid/koo/home/duran/d3_evaluation_pipeline/main.py", line 789, in <module>
+    main()
+  File "/grid/koo/home/duran/d3_evaluation_pipeline/main.py", line 606, in main
+    run_batch_analysis(args)
+  File "/grid/koo/home/duran/d3_evaluation_pipeline/main.py", line 428, in run_batch_analysis
+    raise KeyError(f"Could not find test data in .npz file. Available keys: {npz_data.files}")
+KeyError: "Could not find test data in .npz file. Available keys: ['train', 'valid', 'test']"
+Traceback (most recent call last):
+  File "/grid/koo/home/duran/d3_evaluation_pipeline/main.py", line 789, in <module>
+    main()
+  File "/grid/koo/home/duran/d3_evaluation_pipeline/main.py", line 606, in main
+    run_batch_analysis(args)
+  File "/grid/koo/home/duran/d3_evaluation_pipeline/main.py", line 428, in run_batch_analysis
+    raise KeyError(f"Could not find test data in .npz file. Available keys: {npz_data.files}")
+KeyError: "Could not find test data in .npz file. Available keys: ['train', 'valid', 'test']"
+Traceback (most recent call last):
+  File "/grid/koo/home/duran/d3_evaluation_pipeline/main.py", line 789, in <module>
+    main()
+  File "/grid/koo/home/duran/d3_evaluation_pipeline/main.py", line 606, in main
+    run_batch_analysis(args)
+  File "/grid/koo/home/duran/d3_evaluation_pipeline/main.py", line 428, in run_batch_analysis
+    raise KeyError(f"Could not find test data in .npz file. Available keys: {npz_data.files}")
+KeyError: "Could not find test data in .npz file. Available keys: ['train', 'valid', 'test']"
+Traceback (most recent call last):
+  File "/grid/koo/home/duran/d3_evaluation_pipeline/main.py", line 789, in <module>
+    main()
+  File "/grid/koo/home/duran/d3_evaluation_pipeline/main.py", line 606, in main
+    run_batch_analysis(args)
+  File "/grid/koo/home/duran/d3_evaluation_pipeline/main.py", line 428, in run_batch_analysis
+    raise KeyError(f"Could not find test data in .npz file. Available keys: {npz_data.files}")
+KeyError: "Could not find test data in .npz file. Available keys: ['train', 'valid', 'test']"
+Traceback (most recent call last):
+  File "/grid/koo/home/duran/d3_evaluation_pipeline/main.py", line 789, in <module>
+    main()
+  File "/grid/koo/home/duran/d3_evaluation_pipeline/main.py", line 606, in main
+    run_batch_analysis(args)
+  File "/grid/koo/home/duran/d3_evaluation_pipeline/main.py", line 428, in run_batch_analysis
+    raise KeyError(f"Could not find test data in .npz file. Available keys: {npz_data.files}")
+KeyError: "Could not find test data in .npz file. Available keys: ['train', 'valid', 'test']"
+Traceback (most recent call last):
+  File "/grid/koo/home/duran/d3_evaluation_pipeline/main.py", line 789, in <module>
+    main()
+  File "/grid/koo/home/duran/d3_evaluation_pipeline/main.py", line 606, in main
+    run_batch_analysis(args)
+  File "/grid/koo/home/duran/d3_evaluation_pipeline/main.py", line 428, in run_batch_analysis
+    raise KeyError(f"Could not find test data in .npz file. Available keys: {npz_data.files}")
+KeyError: "Could not find test data in .npz file. Available keys: ['train', 'valid', 'test']"
+Traceback (most recent call last):
+  File "/grid/koo/home/duran/d3_evaluation_pipeline/main.py", line 789, in <module>
+    main()
+  File "/grid/koo/home/duran/d3_evaluation_pipeline/main.py", line 606, in main
+    run_batch_analysis(args)
+  File "/grid/koo/home/duran/d3_evaluation_pipeline/main.py", line 428, in run_batch_analysis
+    raise KeyError(f"Could not find test data in .npz file. Available keys: {npz_data.files}")
+KeyError: "Could not find test data in .npz file. Available keys: ['train', 'valid', 'test']"
+Traceback (most recent call last):
+  File "/grid/koo/home/duran/d3_evaluation_pipeline/main.py", line 789, in <module>
+    main()
+  File "/grid/koo/home/duran/d3_evaluation_pipeline/main.py", line 606, in main
+    run_batch_analysis(args)
+  File "/grid/koo/home/duran/d3_evaluation_pipeline/main.py", line 428, in run_batch_analysis
+    raise KeyError(f"Could not find test data in .npz file. Available keys: {npz_data.files}")
+KeyError: "Could not find test data in .npz file. Available keys: ['train', 'valid', 'test']"
+Traceback (most recent call last):
+  File "/grid/koo/home/duran/d3_evaluation_pipeline/main.py", line 789, in <module>
+    main()
+  File "/grid/koo/home/duran/d3_evaluation_pipeline/main.py", line 606, in main
+    run_batch_analysis(args)
+  File "/grid/koo/home/duran/d3_evaluation_pipeline/main.py", line 428, in run_batch_analysis
+    raise KeyError(f"Could not find test data in .npz file. Available keys: {npz_data.files}")
+KeyError: "Could not find test data in .npz file. Available keys: ['train', 'valid', 'test']"
+slurmstepd: error: *** JOB 130781 ON bamgpu101 CANCELLED AT 2025-10-07T16:20:37 ***
