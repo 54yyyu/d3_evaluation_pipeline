@@ -466,9 +466,36 @@ def run_batch_analysis(args):
                 x_test = f['X_test'][()]
                 x_train = f['X_train'][()]
 
+    # For SEI models, ensure sequences are padded to 4096
+    if args.model_type.lower() == 'sei':
+        for data_name, data_array in [('x_test', x_test), ('x_train', x_train)]:
+            current_seq_len = data_array.shape[-1]
+            if current_seq_len < 4096:
+                # Pad sequences to 4096 length
+                pad_size = 4096 - current_seq_len
+                pad_left = pad_size // 2
+                pad_right = pad_size - pad_left
+
+                # Create padding with uniform background (0.25 for each nucleotide)
+                left_pad = np.full((data_array.shape[0], 4, pad_left), 0.25)
+                right_pad = np.full((data_array.shape[0], 4, pad_right), 0.25)
+
+                # Apply padding
+                data_array = np.concatenate([left_pad, data_array, right_pad], axis=-1)
+            elif current_seq_len > 4096:
+                # Truncate if longer than 4096
+                center_start = (current_seq_len - 4096) // 2
+                data_array = data_array[:, :, center_start:center_start + 4096]
+
+            # Update the variable
+            if data_name == 'x_test':
+                x_test = data_array
+            else:
+                x_train = data_array
+
     x_test_tensor = numpy_to_tensor(x_test)
     x_train_tensor = numpy_to_tensor(x_train)
-    
+
     # For attribution analysis, ensure X_test has shape (N, 4, L)
     if 'promoter_format' in locals() and promoter_format:
         # Already (N, 4, L)
@@ -530,11 +557,32 @@ def run_batch_analysis(args):
         # Extract synthetic sequences from NPZ
         try:
             x_synthetic = np.transpose(npz_data['arr_0'], (0, 2, 1))  # Convert to (N, 4, L)
+
+            # For SEI models, ensure sequences are padded to 4096
+            if args.model_type.lower() == 'sei':
+                current_seq_len = x_synthetic.shape[-1]
+                if current_seq_len < 4096:
+                    # Pad sequences to 4096 length
+                    pad_size = 4096 - current_seq_len
+                    pad_left = pad_size // 2
+                    pad_right = pad_size - pad_left
+
+                    # Create padding with uniform background (0.25 for each nucleotide)
+                    left_pad = np.full((x_synthetic.shape[0], 4, pad_left), 0.25)
+                    right_pad = np.full((x_synthetic.shape[0], 4, pad_right), 0.25)
+
+                    # Apply padding
+                    x_synthetic = np.concatenate([left_pad, x_synthetic, right_pad], axis=-1)
+                elif current_seq_len > 4096:
+                    # Truncate if longer than 4096
+                    center_start = (current_seq_len - 4096) // 2
+                    x_synthetic = x_synthetic[:, :, center_start:center_start + 4096]
+
             x_synthetic_tensor = numpy_to_tensor(x_synthetic)
-            
+
             # For attribution analysis
             sample_seqs = torch.tensor(npz_data['arr_0'], dtype=torch.float32)
-            
+
             print(f"Loaded {len(x_synthetic)} synthetic sequences for {sample_name}")
             
         except Exception as e:
