@@ -404,9 +404,8 @@ def run_batch_analysis(args):
             train_data = npz_data['train']
 
             # Extract sequences (first 4 channels) and transpose to (N, 4, seq_len)
-            x_test = test_data[:, :, :4]
-            x_train = train_data[:, :, :4]
-            if x_test.shape != 
+            x_test = np.transpose(test_data[:, :, :4], (0, 2, 1))
+            x_train = np.transpose(train_data[:, :, :4], (0, 2, 1))
             
         elif args.model_type.lower() in ['mpralegnet', 'lentimpra']:
             # Try different naming conventions for test data
