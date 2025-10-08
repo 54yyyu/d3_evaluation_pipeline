@@ -56,7 +56,7 @@ def parse_arguments():
                        help='Path to directory containing multiple NPZ files for batch processing')
     
     parser.add_argument('--data', type=str,
-                       default=os.getenv('DATA_FILE', 'DeepSTARR_data.h5'),
+                       default=os.getenv('DATA_FILE', '/grid/koo/home/shared/d3/data/promoter/Promoter_data.npz'),
                        help='Path to data file (.h5 or .npz format) containing test/train sequences')
 
     parser.add_argument('--model', type=str,
