@@ -662,10 +662,6 @@ def load_predictions_batched(x_test_tensor, x_synthetic_tensor, oracle_model, mo
                 batch = tensor[i:i+batch_size]
                 batch_pred = oracle_model(batch)
 
-                # For SEI model, filter for specific features
-                if model_type.lower() == 'sei':
-                    batch_pred = batch_pred.mean(dim=1, keepdim=True)
-
                 predictions.append(batch_pred.detach().cpu())
 
                 # Clear GPU cache after each batch
