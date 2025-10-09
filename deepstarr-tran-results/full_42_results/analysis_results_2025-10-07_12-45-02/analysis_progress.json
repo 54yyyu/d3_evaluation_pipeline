@@ -1,0 +1,31 @@
+{
+  "timestamp": "2025-10-07T12:51:23.542176",
+  "completed_analyses": [
+    "kmer_spectrum_shift",
+    "predictive_dist_shift",
+    "discriminability"
+  ],
+  "total_analyses": 3,
+  "results_summary": {
+    "kmer_spectrum_shift": {
+      "kmer_spectra_kullback_leibler_divergence": 0.004522,
+      "kmer_spectra_jensen_shannon_distance": 0.033806,
+      "js_distance": 0.033806,
+      "kmer_length": 6
+    },
+    "predictive_dist_shift": {
+      "predictive_distribution_shift_ks_statistic": 0.0429636590733649,
+      "y_hat_test": "Array with shape (41186, 2)",
+      "y_hat_syn": "Array with shape (41185, 2)"
+    },
+    "discriminability": {
+      "auroc": 0.6608148926398569,
+      "n_samples": 82371,
+      "n_real": 41186,
+      "n_synthetic": 41185,
+      "best_model_path": "/grid/koo/home/duran/d3_evaluation_pipeline/deepstarr-tran-results/full_42_results/analysis_results_2025-10-07_12-45-02/discriminability_classifier.ckpt",
+      "checkpoint_dir": "deepstarr-tran-results/full_42_results/analysis_results_2025-10-07_12-45-02"
+    }
+  },
+  "output_directory": "deepstarr-tran-results/full_42_results/analysis_results_2025-10-07_12-45-02"
+}

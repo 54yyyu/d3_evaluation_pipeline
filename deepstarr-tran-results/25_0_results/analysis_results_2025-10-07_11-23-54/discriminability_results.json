@@ -1,0 +1,8 @@
+{
+  "auroc": 0.6942067342130642,
+  "n_samples": 82371,
+  "n_real": 41186,
+  "n_synthetic": 41185,
+  "best_model_path": "/grid/koo/home/duran/d3_evaluation_pipeline/deepstarr-tran-results/25_0_results/analysis_results_2025-10-07_11-23-54/discriminability_classifier.ckpt",
+  "checkpoint_dir": "deepstarr-tran-results/25_0_results/analysis_results_2025-10-07_11-23-54"
+}
