@@ -88,6 +88,8 @@ def extract_data(samples_file_path, data_file):
                 samples.append(f['x_synthetic'][()])
             elif 'synthetic_data' in f.keys():
                 samples.append(f['synthetic_data'][()])
+            elif 'shuffled_sequences' in f.keys():
+                samples.append(f['shuffled_sequences'][()])
             else:
                 # Take the first available key
                 first_key = list(f.keys())[0]
