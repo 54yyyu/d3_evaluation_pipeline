@@ -222,28 +222,82 @@ def extract_lentimpra_data(samples_file_path, data_file):
             # Access the data for lentimpra format
             # Assuming similar structure but with onehot_test and onehot_train
             if 'onehot_test' in f.keys():
-                x_test = f['onehot_test'][()]  # shape: (n, 230, 4)
-                x_test = np.transpose(x_test, (0, 2, 1))  # Convert to (n, 4, 230)
+                x_test = f['onehot_test'][()]
+                print(f"Loaded 'onehot_test' with shape: {x_test.shape}")
+                # Check if transpose is needed
+                if x_test.ndim != 3:
+                    raise ValueError(f"Expected 3D array for onehot_test, got {x_test.ndim}D with shape {x_test.shape}")
+                if x_test.shape[-1] == 4 and x_test.shape[1] != 4:
+                    # shape: (n, 230, 4) -> transpose to (n, 4, 230)
+                    x_test = np.transpose(x_test, (0, 2, 1))
+                    print(f"Transposed onehot_test to shape: {x_test.shape}")
+                elif x_test.shape[1] == 4:
+                    # Already in correct format (n, 4, 230)
+                    print(f"onehot_test already in correct format: {x_test.shape}")
             elif 'X_test' in f.keys():
                 x_test = f['X_test'][()]
+                print(f"Loaded 'X_test' with shape: {x_test.shape}")
+                # Check dimensions and transpose if needed
+                if x_test.ndim != 3:
+                    raise ValueError(f"Expected 3D array for X_test, got {x_test.ndim}D with shape {x_test.shape}")
+                if x_test.shape[-1] == 4 and x_test.shape[1] != 4:
+                    # shape: (n, 230, 4) -> transpose to (n, 4, 230)
+                    x_test = np.transpose(x_test, (0, 2, 1))
+                    print(f"Transposed X_test to shape: {x_test.shape}")
+                elif x_test.shape[1] == 4:
+                    # Already in correct format (n, 4, 230)
+                    print(f"X_test already in correct format: {x_test.shape}")
+                else:
+                    raise ValueError(f"Unexpected shape for X_test: {x_test.shape}. Expected (n, 4, 230) or (n, 230, 4)")
             else:
                 raise KeyError("Could not find test data in lentimpra file")
 
             if 'onehot_train' in f.keys():
-                x_train = f['onehot_train'][()]  # shape: (n, 230, 4)
-                x_train = np.transpose(x_train, (0, 2, 1))  # Convert to (n, 4, 230)
+                x_train = f['onehot_train'][()]
+                print(f"Loaded 'onehot_train' with shape: {x_train.shape}")
+                # Check if transpose is needed
+                if x_train.ndim != 3:
+                    raise ValueError(f"Expected 3D array for onehot_train, got {x_train.ndim}D with shape {x_train.shape}")
+                if x_train.shape[-1] == 4 and x_train.shape[1] != 4:
+                    # shape: (n, 230, 4) -> transpose to (n, 4, 230)
+                    x_train = np.transpose(x_train, (0, 2, 1))
+                    print(f"Transposed onehot_train to shape: {x_train.shape}")
+                elif x_train.shape[1] == 4:
+                    # Already in correct format (n, 4, 230)
+                    print(f"onehot_train already in correct format: {x_train.shape}")
             elif 'X_train' in f.keys():
                 x_train = f['X_train'][()]
+                print(f"Loaded 'X_train' with shape: {x_train.shape}")
+                # Check dimensions and transpose if needed
+                if x_train.ndim != 3:
+                    raise ValueError(f"Expected 3D array for X_train, got {x_train.ndim}D with shape {x_train.shape}")
+                if x_train.shape[-1] == 4 and x_train.shape[1] != 4:
+                    # shape: (n, 230, 4) -> transpose to (n, 4, 230)
+                    x_train = np.transpose(x_train, (0, 2, 1))
+                    print(f"Transposed X_train to shape: {x_train.shape}")
+                elif x_train.shape[1] == 4:
+                    # Already in correct format (n, 4, 230)
+                    print(f"X_train already in correct format: {x_train.shape}")
+                else:
+                    raise ValueError(f"Unexpected shape for X_train: {x_train.shape}. Expected (n, 4, 230) or (n, 230, 4)")
             else:
                 raise KeyError("Could not find training data in lentimpra file")
 
     # Handle samples - they should be 230 length for lentimpra
-    if samples[0].shape[-1] == 230:
-        # Already correct length: (n, 4, 230)
+    print(f"Loaded samples with shape: {samples[0].shape}")
+    if samples[0].ndim != 3:
+        raise ValueError(f"Expected 3D array for samples, got {samples[0].ndim}D with shape {samples[0].shape}")
+
+    if samples[0].shape[-1] == 230 and samples[0].shape[1] == 4:
+        # Already correct format: (n, 4, 230)
         x_synthetic = samples[0]
-    else:
-        # If they come in different format, transpose: (n, 230, 4) -> (n, 4, 230)
+        print(f"Samples already in correct format: {x_synthetic.shape}")
+    elif samples[0].shape[-1] == 4 and samples[0].shape[1] == 230:
+        # Need to transpose: (n, 230, 4) -> (n, 4, 230)
         x_synthetic = np.transpose(samples[0], (0, 2, 1))
+        print(f"Transposed samples to shape: {x_synthetic.shape}")
+    else:
+        raise ValueError(f"Unexpected shape for samples: {samples[0].shape}. Expected (n, 4, 230) or (n, 230, 4)")
 
     return x_test, x_synthetic, x_train
 
