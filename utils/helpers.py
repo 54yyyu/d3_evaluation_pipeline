@@ -90,6 +90,8 @@ def extract_data(samples_file_path, data_file):
                 samples.append(f['synthetic_data'][()])
             elif 'shuffled_sequences' in f.keys():
                 samples.append(f['shuffled_sequences'][()])
+            elif 'sequences_onehot' in f.keys():
+                samples.append(f['sequences_onehot'][()])
             else:
                 # Take the first available key
                 first_key = list(f.keys())[0]
@@ -177,6 +179,8 @@ def extract_lentimpra_data(samples_file_path, data_file):
                     samples.append(f['x_synthetic'][()])
                 elif 'synthetic_data' in f.keys():
                     samples.append(f['synthetic_data'][()])
+                elif 'sequences_onehot' in f.keys():
+                    samples.append(f['sequences_onehot'][()])
                 else:
                     # Take the first available key
                     first_key = list(f.keys())[0]
