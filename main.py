@@ -556,7 +556,24 @@ def run_batch_analysis(args):
         
         # Extract synthetic sequences from NPZ
         try:
-            x_synthetic = np.transpose(npz_data['arr_0'], (0, 2, 1))  # Convert to (N, 4, L)
+            # Try to find the data array with flexible key detection
+            if 'arr_0' in npz_data.files:
+                sample_data = npz_data['arr_0']
+            elif 'first_sample' in npz_data.files:
+                sample_data = npz_data['first_sample']
+            elif 'samples' in npz_data.files:
+                sample_data = npz_data['samples']
+            elif 'x_synthetic' in npz_data.files:
+                sample_data = npz_data['x_synthetic']
+            elif 'synthetic_data' in npz_data.files:
+                sample_data = npz_data['synthetic_data']
+            else:
+                # Take the first available key as fallback
+                first_key = npz_data.files[0]
+                sample_data = npz_data[first_key]
+                print(f"Warning: Using key '{first_key}' for sample data. Available keys: {list(npz_data.files)}")
+
+            x_synthetic = np.transpose(sample_data, (0, 2, 1))  # Convert to (N, 4, L)
 
             # For SEI models, ensure sequences are padded to 4096
             if args.model_type.lower() == 'sei':
@@ -580,8 +597,8 @@ def run_batch_analysis(args):
 
             x_synthetic_tensor = numpy_to_tensor(x_synthetic)
 
-            # For attribution analysis
-            sample_seqs = torch.tensor(npz_data['arr_0'], dtype=torch.float32)
+            # For attribution analysis - use the same data we found
+            sample_seqs = torch.tensor(sample_data, dtype=torch.float32)
 
             print(f"Loaded {len(x_synthetic)} synthetic sequences for {sample_name}")
             
