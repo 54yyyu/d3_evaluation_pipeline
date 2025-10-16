@@ -115,6 +115,8 @@ def extract_data(samples_file_path, data_file):
                 samples.append(f['x_synthetic'][()])
             elif 'synthetic_data' in f.keys():
                 samples.append(f['synthetic_data'][()])
+            elif 'first_sample' in f.keys():
+		samples.append(f['first_sample'][()])
             else:
                 # Take the first available key
                 first_key = list(f.keys())[0]
