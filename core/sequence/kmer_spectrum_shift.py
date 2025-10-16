@@ -39,7 +39,21 @@ def compute_kmer_spectra(
 
         seq = X[index]
 
-        seq_list += ["".join([dna_dict[np.where(i)[0][0]] for i in seq])]
+        # Handle positions with all zeros (padding/masking) by using argmax
+        # If all zeros, argmax returns 0 (will be 'A'), but we filter later
+        converted_seq = []
+        for i in seq:
+            # Check if position has any non-zero values
+            if np.any(i > 0):
+                # Normal case: find the position of the 1
+                pos = np.where(i)[0][0]
+                converted_seq.append(dna_dict[pos])
+            else:
+                # All zeros - use argmax as fallback (will give 'A')
+                # This handles padding, which will be at sequence ends
+                converted_seq.append(dna_dict[np.argmax(i)])
+
+        seq_list += ["".join(converted_seq)]
 
     obj = kmer_featurization(kmer_length)  # initialize a kmer_featurization object
     kmer_features = obj.obtain_kmer_feature_for_a_list_of_sequences(seq_list, write_number_of_occurrences=True)
@@ -127,26 +141,27 @@ class kmer_featurization:
 def run_kmer_spectrum_shift_analysis(x_test_tensor, x_synthetic_tensor, kmer_length=6, output_dir=".", sample_name=None):
     """
     Run k-mer spectrum shift analysis.
-    
+
     Compares k-mer frequency distributions between generated and real sequences
     using Jensen-Shannon divergence.
-    
+
     Args:
         x_test_tensor: Test sequences tensor
         x_synthetic_tensor: Synthetic sequences tensor
         kmer_length: Length of k-mers to analyze (default: 6)
         output_dir: Directory to save results
         sample_name: Name of sample for batch processing (optional)
-        
+
     Returns:
         dict: Results dictionary with k-mer statistics
     """
-    from utils.helpers import put_deepstarr_into_NLA
-    
+    from utils.helpers import filter_sequences_for_kmer_analysis
+
     current_date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    
+
     print(f"Computing k-mer spectrum statistics (k={kmer_length})...")
-    X_test, X_syn = put_deepstarr_into_NLA(x_test_tensor, x_synthetic_tensor)
+    # Filter sequences with zero padding
+    X_test, X_syn, n_removed_test, n_removed_synthetic = filter_sequences_for_kmer_analysis(x_test_tensor, x_synthetic_tensor)
     Kullback_Leibler_divergence = kmer_statistics(kmer_length, X_test, X_syn)[0]
     Jensen_Shannon_distance = kmer_statistics(kmer_length, X_test, X_syn)[1]
     

@@ -751,6 +751,60 @@ def get_penultimate_embeddings(model, x, model_type='deepstarr', batch_size=8):
     # Concatenate all embeddings
     return torch.cat(all_embeddings, dim=0).numpy()
 
+def detect_sequences_with_zero_padding(sequences):
+    """
+    Detect sequences with zero one-hot positions (padding).
+    Args:
+        sequences: numpy array of shape (N, L, 4) or (N, 4, L)
+    Returns:
+        valid_indices: indices of sequences without zero padding
+        invalid_indices: indices of sequences with zero padding
+    """
+    # Determine format
+    if sequences.shape[-1] == 4:
+        # Shape: (N, L, 4) - sum across last dimension
+        position_sums = np.sum(sequences, axis=2)
+    elif sequences.shape[1] == 4:
+        # Shape: (N, 4, L) - sum across dimension 1
+        position_sums = np.sum(sequences, axis=1)
+    else:
+        raise ValueError(f"Unexpected sequence shape: {sequences.shape}")
+    # Find sequences with any zero positions
+    has_zero_positions = np.any(position_sums == 0, axis=1)
+    valid_indices = np.where(~has_zero_positions)[0]
+    invalid_indices = np.where(has_zero_positions)[0]
+    return valid_indices, invalid_indices
+def filter_sequences_for_kmer_analysis(x_test_tensor, x_synthetic_tensor):
+    """
+    Filter sequences with zero padding for k-mer analysis.
+    Removes sequences with zero padding from both test and synthetic sets.
+    Args:
+        x_test_tensor: Test sequences tensor (N_test, 4, L)
+        x_synthetic_tensor: Synthetic sequences tensor (N_syn, 4, L)
+    Returns:
+        filtered_test: Test sequences without padding
+        filtered_synthetic: Synthetic sequences without padding
+        n_removed_test: Number of test sequences removed
+        n_removed_synthetic: Number of synthetic sequences removed
+    """
+    # Convert to numpy
+    X_test = x_test_tensor.detach().cpu().numpy().transpose(0,2,1)  # (N, L, 4)
+    X_syn = x_synthetic_tensor.detach().cpu().numpy().transpose(0,2,1)  # (N, L, 4)
+    # Detect padding in synthetic sequences
+    valid_syn_idx, invalid_syn_idx = detect_sequences_with_zero_padding(X_syn)
+    n_removed_synthetic = len(invalid_syn_idx)
+    # Filter synthetic sequences
+    X_syn_filtered = X_syn[valid_syn_idx]
+    # Detect padding in test sequences
+    valid_test_idx, invalid_test_idx = detect_sequences_with_zero_padding(X_test)
+    n_removed_test = len(invalid_test_idx)
+    # Filter test sequences
+    X_test_filtered = X_test[valid_test_idx]
+    if n_removed_test > 0 or n_removed_synthetic > 0:
+        print(f"  Filtered sequences for k-mer analysis:")
+        print(f"    Test: removed {n_removed_test}/{len(X_test)} sequences with padding")
+        print(f"    Synthetic: removed {n_removed_synthetic}/{len(X_syn)} sequences with padding")
+    return X_test_filtered, X_syn_filtered, n_removed_test, n_removed_synthetic
 #preparing data to put into kmer_statistics function
 def put_deepstarr_into_NLA(x_test_tensor, x_synthetic_tensor):
     return x_test_tensor.detach().cpu().numpy().transpose(0,2,1), x_synthetic_tensor.detach().cpu().numpy().transpose(0,2,1)
