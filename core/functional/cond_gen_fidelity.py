@@ -7,7 +7,7 @@ def conditional_generation_fidelity(activity1, activity2):
     """Compute MSE between predicted activities."""
     return np.mean((activity1 - activity2)**2)
 
-def run_conditional_generation_fidelity_analysis(oracle_model, x_test_tensor, x_synthetic_tensor, output_dir=".", sample_name=None, model_type='deepstarr'):
+def run_conditional_generation_fidelity_analysis(oracle_model, x_test_tensor, x_synthetic_tensor, output_dir=".", sample_name=None, model_type='deepstarr', per_dimension=False):
     """
     Run conditional generation fidelity analysis.
 
@@ -21,9 +21,10 @@ def run_conditional_generation_fidelity_analysis(oracle_model, x_test_tensor, x_
         output_dir: Directory to save results
         sample_name: Name of sample for batch processing (optional)
         model_type: Type of model ('deepstarr', 'lentimpra', 'multi-oracle')
+        per_dimension: If True and model_type is 'multi-oracle', compute metrics separately for each oracle (default: False)
 
     Returns:
-        dict: Results dictionary with fidelity MSE
+        dict: Results dictionary with fidelity MSE (3 separate values if per_dimension=True for multi-oracle)
     """
     from utils.helpers import load_predictions, load_multi_oracle_predictions
 
@@ -35,11 +36,24 @@ def run_conditional_generation_fidelity_analysis(oracle_model, x_test_tensor, x_
     else:
         y_hat_test, y_hat_syn = load_predictions(x_test_tensor, x_synthetic_tensor, oracle_model)
 
-    mse = conditional_generation_fidelity(y_hat_syn, y_hat_test)
-    
-    results = {
-        'conditional_generation_fidelity_mse': mse
-    }
+    # Compute metrics
+    if per_dimension and model_type == 'multi-oracle':
+        # Compute separate MSE for each of the 3 oracles
+        mse_oracle_1 = conditional_generation_fidelity(y_hat_syn[:, 0], y_hat_test[:, 0])
+        mse_oracle_2 = conditional_generation_fidelity(y_hat_syn[:, 1], y_hat_test[:, 1])
+        mse_oracle_3 = conditional_generation_fidelity(y_hat_syn[:, 2], y_hat_test[:, 2])
+
+        results = {
+            'conditional_generation_fidelity_mse_oracle_1': mse_oracle_1,
+            'conditional_generation_fidelity_mse_oracle_2': mse_oracle_2,
+            'conditional_generation_fidelity_mse_oracle_3': mse_oracle_3
+        }
+    else:
+        # Default behavior: compute single MSE (averaged over all dimensions if multi-oracle)
+        mse = conditional_generation_fidelity(y_hat_syn, y_hat_test)
+        results = {
+            'conditional_generation_fidelity_mse': mse
+        }
     
     # Handle batch vs single mode
     if sample_name is not None:

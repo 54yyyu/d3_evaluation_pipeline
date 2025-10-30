@@ -10,7 +10,7 @@ def predictive_distribution_shift(y_hat_test, y_hat_syn):
     ks_statistic = scipy.stats.kstest(y_hat_test, y_hat_syn).statistic.mean()
     return ks_statistic
 
-def run_predictive_distribution_shift_analysis(oracle_model, x_test_tensor, x_synthetic_tensor, output_dir=".", sample_name=None, model_type='deepstarr'):
+def run_predictive_distribution_shift_analysis(oracle_model, x_test_tensor, x_synthetic_tensor, output_dir=".", sample_name=None, model_type='deepstarr', per_dimension=False):
     """
     Run predictive distribution shift analysis.
 
@@ -24,9 +24,10 @@ def run_predictive_distribution_shift_analysis(oracle_model, x_test_tensor, x_sy
         output_dir: Directory to save results
         sample_name: Name of sample for batch processing (optional)
         model_type: Type of model ('deepstarr', 'lentimpra', 'multi-oracle')
+        per_dimension: If True and model_type is 'multi-oracle', compute metrics separately for each oracle (default: False)
 
     Returns:
-        dict: Results dictionary with distribution shift metric
+        dict: Results dictionary with distribution shift metric (3 separate values if per_dimension=True for multi-oracle)
     """
     from utils.helpers import load_predictions, load_multi_oracle_predictions
 
@@ -37,15 +38,31 @@ def run_predictive_distribution_shift_analysis(oracle_model, x_test_tensor, x_sy
         y_hat_test, y_hat_syn = load_multi_oracle_predictions(x_test_tensor, x_synthetic_tensor, oracle_model)
     else:
         y_hat_test, y_hat_syn = load_predictions(x_test_tensor, x_synthetic_tensor, oracle_model)
-    
+
     print("Computing predictive distribution shift...")
-    ks_statistic = predictive_distribution_shift(y_hat_test, y_hat_syn)
-    
-    results = {
-        'predictive_distribution_shift_ks_statistic': ks_statistic,
-        'y_hat_test': y_hat_test,
-        'y_hat_syn': y_hat_syn
-    }
+
+    # Compute metrics
+    if per_dimension and model_type == 'multi-oracle':
+        # Compute separate KS statistic for each of the 3 oracles
+        ks_stat_oracle_1 = scipy.stats.ks_2samp(y_hat_test[:, 0], y_hat_syn[:, 0]).statistic
+        ks_stat_oracle_2 = scipy.stats.ks_2samp(y_hat_test[:, 1], y_hat_syn[:, 1]).statistic
+        ks_stat_oracle_3 = scipy.stats.ks_2samp(y_hat_test[:, 2], y_hat_syn[:, 2]).statistic
+
+        results = {
+            'predictive_distribution_shift_ks_statistic_oracle_1': ks_stat_oracle_1,
+            'predictive_distribution_shift_ks_statistic_oracle_2': ks_stat_oracle_2,
+            'predictive_distribution_shift_ks_statistic_oracle_3': ks_stat_oracle_3,
+            'y_hat_test': y_hat_test,
+            'y_hat_syn': y_hat_syn
+        }
+    else:
+        # Default behavior: compute single KS statistic (averaged over all dimensions if multi-oracle)
+        ks_statistic = predictive_distribution_shift(y_hat_test, y_hat_syn)
+        results = {
+            'predictive_distribution_shift_ks_statistic': ks_statistic,
+            'y_hat_test': y_hat_test,
+            'y_hat_syn': y_hat_syn
+        }
     
     # Handle batch vs single mode
     if sample_name is not None:

@@ -97,10 +97,13 @@ def parse_arguments():
                         percent_identity, kmer_spectrum_shift, discriminability, 
                         motif_enrichment, motif_cooccurrence, attribution_consistency""")
     
-    parser.add_argument('--motif-db', type=str, 
+    parser.add_argument('--motif-db', type=str,
                        default='JASPAR2024_CORE_non-redundant_pfms_meme.txt',
                        help='Path to motif database file for motif analysis (default: JASPAR2024_CORE_non-redundant_pfms_meme.txt)')
-    
+
+    parser.add_argument('--per_dimension', action='store_true',
+                       help='For multi-oracle models, compute and return metrics separately for each of the 3 oracles instead of averaging (default: False)')
+
     return parser.parse_args()
 
 
@@ -497,7 +500,7 @@ def run_batch_analysis(args):
             print(f"  [{j}/{len(test_list)}] Running {test_name.replace('_', ' ').title()}...")
             try:
                 run_single_batch_test(test_name, oracle_model, args.model_type, x_test_tensor, x_synthetic_tensor,
-                                     x_train_tensor, sample_seqs, X_test, output_dir, sample_name, args.motif_db)
+                                     x_train_tensor, sample_seqs, X_test, output_dir, sample_name, args.motif_db, args.per_dimension)
             except Exception as e:
                 import traceback
                 print(f"    ✗ {test_name} failed for {sample_name}: {e}")
@@ -509,17 +512,17 @@ def run_batch_analysis(args):
 
 
 def run_single_batch_test(test_name, oracle_model, model_type, x_test_tensor, x_synthetic_tensor,
-                         x_train_tensor, sample_seqs, X_test, output_dir, sample_name, motif_db_path):
+                         x_train_tensor, sample_seqs, X_test, output_dir, sample_name, motif_db_path, per_dimension=False):
     """Run a single test for batch mode."""
     if test_name == 'cond_gen_fidelity':
         run_conditional_generation_fidelity_analysis(
-            oracle_model, x_test_tensor, x_synthetic_tensor, output_dir, sample_name, model_type)
+            oracle_model, x_test_tensor, x_synthetic_tensor, output_dir, sample_name, model_type, per_dimension)
     elif test_name == 'frechet_distance':
         run_frechet_distance_analysis(
-            oracle_model, x_test_tensor, x_synthetic_tensor, output_dir, sample_name, model_type)
+            oracle_model, x_test_tensor, x_synthetic_tensor, output_dir, sample_name, model_type, per_dimension)
     elif test_name == 'predictive_dist_shift':
         run_predictive_distribution_shift_analysis(
-            oracle_model, x_test_tensor, x_synthetic_tensor, output_dir, sample_name, model_type)
+            oracle_model, x_test_tensor, x_synthetic_tensor, output_dir, sample_name, model_type, per_dimension)
     elif test_name == 'percent_identity':
         run_percent_identity_analysis(
             x_synthetic_tensor, x_train_tensor, output_dir, sample_name)
@@ -596,7 +599,7 @@ def main():
         # Run each selected test
         for i, test_name in enumerate(test_list, 1):
             print(f"\n[{i}/{total_analyses}] --- Running {test_name.replace('_', ' ').title()} ---")
-            run_single_modular_test(test_name, data, output_dir, all_results, completed_analyses, args.motif_db)
+            run_single_modular_test(test_name, data, output_dir, all_results, completed_analyses, args.motif_db, args.per_dimension)
     else:
         # Run tests based on similarity type flags
         run_similarity_type_tests(args, data, output_dir, all_results, completed_analyses)
@@ -634,23 +637,26 @@ def main():
         print(f"\n✅ All analyses completed successfully!")
 
 
-def run_single_modular_test(test_name, data, output_dir, all_results, completed_analyses, motif_db_path='JASPAR2024_CORE_non-redundant_pfms_meme.txt'):
+def run_single_modular_test(test_name, data, output_dir, all_results, completed_analyses, motif_db_path='JASPAR2024_CORE_non-redundant_pfms_meme.txt', per_dimension=False):
     """Run a single modular test."""
     try:
         if test_name == 'cond_gen_fidelity':
             results = run_conditional_generation_fidelity_analysis(
-                data['oracle_model'], data['x_test_tensor'], data['x_synthetic_tensor'], output_dir, model_type=data['model_type'])
+                data['oracle_model'], data['x_test_tensor'], data['x_synthetic_tensor'], output_dir, model_type=data['model_type'], per_dimension=per_dimension)
         elif test_name == 'frechet_distance':
             if data['model_type'].lower() in ['mpralegnet', 'lentimpra']:
                 print("Fréchet distance analysis not implemented yet for MPRALegNet models.")
                 raise NotImplementedError("Fréchet distance analysis not implemented yet for MPRALegNet models.")
             elif data['model_type'].lower() == 'multi-oracle':
-                print("Fréchet distance analysis for multi-oracle uses concatenated embeddings from all three models.")
+                if per_dimension:
+                    print("Fréchet distance analysis for multi-oracle with --per_dimension: computing separate metrics for each oracle.")
+                else:
+                    print("Fréchet distance analysis for multi-oracle uses concatenated embeddings from all three models.")
             results = run_frechet_distance_analysis(
-                data['oracle_model'], data['x_test_tensor'], data['x_synthetic_tensor'], output_dir, model_type=data['model_type'])
+                data['oracle_model'], data['x_test_tensor'], data['x_synthetic_tensor'], output_dir, model_type=data['model_type'], per_dimension=per_dimension)
         elif test_name == 'predictive_dist_shift':
             results = run_predictive_distribution_shift_analysis(
-                data['oracle_model'], data['x_test_tensor'], data['x_synthetic_tensor'], output_dir, model_type=data['model_type'])
+                data['oracle_model'], data['x_test_tensor'], data['x_synthetic_tensor'], output_dir, model_type=data['model_type'], per_dimension=per_dimension)
         elif test_name == 'percent_identity':
             results = run_percent_identity_analysis(
                 data['x_synthetic_tensor'], data['x_train_tensor'], output_dir)
@@ -734,7 +740,7 @@ def run_similarity_type_tests(args, data, output_dir, all_results, completed_ana
     
     for i, test_name in enumerate(tests_to_run, 1):
         print(f"\n[{i}/{len(tests_to_run)}] --- Running {test_name.replace('_', ' ').title()} ---")
-        run_single_modular_test(test_name, data, output_dir, all_results, completed_analyses, args.motif_db)
+        run_single_modular_test(test_name, data, output_dir, all_results, completed_analyses, args.motif_db, args.per_dimension)
 
 
 

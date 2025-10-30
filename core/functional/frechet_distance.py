@@ -40,7 +40,7 @@ def calculate_frechet_distance(mu1, sigma1, mu2, sigma2, eps=1e-6):
     
     return diff.dot(diff) + np.trace(sigma1) + np.trace(sigma2) - 2 * tr_covmean
 
-def run_frechet_distance_analysis(oracle_model, x_test_tensor, x_synthetic_tensor, output_dir=".", sample_name=None, model_type='deepstarr'):
+def run_frechet_distance_analysis(oracle_model, x_test_tensor, x_synthetic_tensor, output_dir=".", sample_name=None, model_type='deepstarr', per_dimension=False):
     """
     Run Fréchet distance analysis.
 
@@ -54,34 +54,69 @@ def run_frechet_distance_analysis(oracle_model, x_test_tensor, x_synthetic_tenso
         output_dir: Directory to save results
         sample_name: Name of sample for batch processing (optional)
         model_type: Type of model ('deepstarr', 'mpralegnet', 'lentimpra', 'multi-oracle')
+        per_dimension: If True and model_type is 'multi-oracle', compute metrics separately for each oracle (default: False)
 
     Returns:
-        dict: Results dictionary with Fréchet distance
+        dict: Results dictionary with Fréchet distance (3 separate values if per_dimension=True for multi-oracle)
     """
     from utils.helpers import get_penultimate_embeddings, get_multi_oracle_embeddings
 
     current_date = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
     print("Extracting embeddings for Fréchet distance...")
-    if model_type == 'multi-oracle':
-        embeddings1 = get_multi_oracle_embeddings(oracle_model, x_test_tensor, 'lentimpra')
-        embeddings2 = get_multi_oracle_embeddings(oracle_model, x_synthetic_tensor, 'lentimpra')
+
+    # Compute metrics
+    if per_dimension and model_type == 'multi-oracle':
+        # Compute separate Frechet distance for each of the 3 oracles
+        model1, model2, model3 = oracle_model
+
+        # Oracle 1
+        embeddings1_oracle1 = get_penultimate_embeddings(model1, x_test_tensor, 'lentimpra')
+        embeddings2_oracle1 = get_penultimate_embeddings(model1, x_synthetic_tensor, 'lentimpra')
+        mu1_o1, sigma1_o1 = calculate_activation_statistics(embeddings1_oracle1)
+        mu2_o1, sigma2_o1 = calculate_activation_statistics(embeddings2_oracle1)
+        frechet_distance_oracle_1 = calculate_frechet_distance(mu1_o1, sigma1_o1, mu2_o1, sigma2_o1)
+
+        # Oracle 2
+        embeddings1_oracle2 = get_penultimate_embeddings(model2, x_test_tensor, 'lentimpra')
+        embeddings2_oracle2 = get_penultimate_embeddings(model2, x_synthetic_tensor, 'lentimpra')
+        mu1_o2, sigma1_o2 = calculate_activation_statistics(embeddings1_oracle2)
+        mu2_o2, sigma2_o2 = calculate_activation_statistics(embeddings2_oracle2)
+        frechet_distance_oracle_2 = calculate_frechet_distance(mu1_o2, sigma1_o2, mu2_o2, sigma2_o2)
+
+        # Oracle 3
+        embeddings1_oracle3 = get_penultimate_embeddings(model3, x_test_tensor, 'lentimpra')
+        embeddings2_oracle3 = get_penultimate_embeddings(model3, x_synthetic_tensor, 'lentimpra')
+        mu1_o3, sigma1_o3 = calculate_activation_statistics(embeddings1_oracle3)
+        mu2_o3, sigma2_o3 = calculate_activation_statistics(embeddings2_oracle3)
+        frechet_distance_oracle_3 = calculate_frechet_distance(mu1_o3, sigma1_o3, mu2_o3, sigma2_o3)
+
+        results = {
+            'frechet_distance_oracle_1': frechet_distance_oracle_1,
+            'frechet_distance_oracle_2': frechet_distance_oracle_2,
+            'frechet_distance_oracle_3': frechet_distance_oracle_3
+        }
     else:
-        embeddings1 = get_penultimate_embeddings(oracle_model, x_test_tensor, model_type)
-        embeddings2 = get_penultimate_embeddings(oracle_model, x_synthetic_tensor, model_type)
-    
-    print("Computing activation statistics...")
-    mu1, sigma1 = calculate_activation_statistics(embeddings1)
-    mu2, sigma2 = calculate_activation_statistics(embeddings2)
-    frechet_distance = calculate_frechet_distance(mu1, sigma1, mu2, sigma2)
-    
-    results = {
-        'frechet_distance': frechet_distance,
-        'mu1': mu1,
-        'sigma1': sigma1,
-        'mu2': mu2,
-        'sigma2': sigma2
-    }
+        # Default behavior: use concatenated embeddings for multi-oracle
+        if model_type == 'multi-oracle':
+            embeddings1 = get_multi_oracle_embeddings(oracle_model, x_test_tensor, 'lentimpra')
+            embeddings2 = get_multi_oracle_embeddings(oracle_model, x_synthetic_tensor, 'lentimpra')
+        else:
+            embeddings1 = get_penultimate_embeddings(oracle_model, x_test_tensor, model_type)
+            embeddings2 = get_penultimate_embeddings(oracle_model, x_synthetic_tensor, model_type)
+
+        print("Computing activation statistics...")
+        mu1, sigma1 = calculate_activation_statistics(embeddings1)
+        mu2, sigma2 = calculate_activation_statistics(embeddings2)
+        frechet_distance = calculate_frechet_distance(mu1, sigma1, mu2, sigma2)
+
+        results = {
+            'frechet_distance': frechet_distance,
+            'mu1': mu1,
+            'sigma1': sigma1,
+            'mu2': mu2,
+            'sigma2': sigma2
+        }
     
     # Handle batch vs single mode
     if sample_name is not None:
