@@ -47,12 +47,15 @@ def parse_arguments():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description='Run D3 sequence analysis')
     
-    parser.add_argument('--samples', type=str, 
+    parser.add_argument('--samples', type=str,
                        default=os.getenv('SAMPLES_FILE', 'samples.npz'),
-                       help='Path to samples NPZ file')
-    
+                       help='Path to samples file (.npz or .h5)')
+
     parser.add_argument('--samples-batch', type=str,
-                       help='Path to directory containing multiple NPZ files for batch processing')
+                       help='Path to directory containing multiple sample files (.npz or .h5) for batch processing')
+
+    parser.add_argument('--samples-key', type=str, default=None,
+                       help='Key/dataset name to use from samples file. For npz default is arr_0, for h5 default is sequences_onehot. Comma-separated for multiple keys.')
     
     parser.add_argument('--data', type=str,
                        default=os.getenv('DATA_FILE', 'DeepSTARR_data.h5'), 
@@ -197,11 +200,21 @@ def load_data_and_model(args):
     # Load sample sequences for attribution analysis
     if args.samples.endswith('.npz'):
         samples = np.load(args.samples)
-        sample_seqs = samples['arr_0']
+        # Use specified key or default to arr_0
+        sample_key = args.samples_key if args.samples_key else 'arr_0'
+        if sample_key not in samples:
+            available_keys = list(samples.keys())
+            raise KeyError(f"Key '{sample_key}' not found in {args.samples}. Available keys: {available_keys}")
+        sample_seqs = samples[sample_key]
         sample_seqs = torch.tensor(sample_seqs, dtype=torch.float32)
     elif args.samples.endswith('.h5'):
         with h5py.File(args.samples, 'r') as f:
-            sample_seqs = f['sequences_onehot'][()]
+            # Use specified key or default to sequences_onehot
+            sample_key = args.samples_key if args.samples_key else 'sequences_onehot'
+            if sample_key not in f:
+                available_keys = list(f.keys())
+                raise KeyError(f"Key '{sample_key}' not found in {args.samples}. Available keys: {available_keys}")
+            sample_seqs = f[sample_key][()]
             sample_seqs = torch.tensor(sample_seqs, dtype=torch.float32)
     else:
         raise ValueError(f"Unsupported file type: {args.samples}")
@@ -314,23 +327,28 @@ def run_batch_analysis(args):
         print(f"\n[{i}/{len(batch_samples)}] Processing sample: {sample_name}")
         
         # Load sample data
-        sample_result = load_batch_sample(args.samples_batch, sample_record)
+        sample_result = load_batch_sample(args.samples_batch, sample_record, args.samples_key)
         if sample_result is None:
             print(f"Skipping {sample_name} due to loading error")
             continue
-            
-        sample_name_loaded, npz_data = sample_result
-        
-        # Extract synthetic sequences from NPZ
+
+        sample_name_loaded, data_dict, file_ext = sample_result
+
+        # Extract synthetic sequences - get the key used
         try:
-            x_synthetic = np.transpose(npz_data['arr_0'], (0, 2, 1))  # Convert to (N, 4, L)
+            # Get the actual key from the data_dict
+            data_key = list(data_dict.keys())[0]
+            raw_data = data_dict[data_key]
+
+            # Convert to (N, 4, L) format for analysis
+            x_synthetic = np.transpose(raw_data, (0, 2, 1))
             x_synthetic_tensor = numpy_to_tensor(x_synthetic)
-            
-            # For attribution analysis
-            sample_seqs = torch.tensor(npz_data['arr_0'], dtype=torch.float32)
-            
+
+            # For attribution analysis (keep original format)
+            sample_seqs = torch.tensor(raw_data, dtype=torch.float32)
+
             print(f"Loaded {len(x_synthetic)} synthetic sequences for {sample_name}")
-            
+
         except Exception as e:
             print(f"Error processing {sample_name}: {e}")
             continue

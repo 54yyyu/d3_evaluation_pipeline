@@ -10,100 +10,131 @@ from pathlib import Path
 def discover_batch_samples(batch_dir, csv_filename="metadata.csv"):
     """
     Discover samples in batch directory and handle CSV metadata.
-    
+
     Args:
-        batch_dir: Path to directory containing NPZ files or subdirectories
+        batch_dir: Path to directory containing NPZ/H5 files or subdirectories
         csv_filename: Name of CSV file for metadata
-    
+
     Returns:
         List of dictionaries with sample metadata, or exits if CSV template created
     """
     batch_dir = Path(batch_dir)
     csv_path = batch_dir / csv_filename
-    
+
     # Check if CSV already exists
     if csv_path.exists():
         print(f"Using existing metadata file: {csv_path}")
         df = pd.read_csv(csv_path)
         return df.to_dict('records')
-    
+
     # CSV doesn't exist - need to create template
     print(f"CSV metadata file not found: {csv_path}")
     print("Creating template...")
-    
-    # Detect directory structure
+
+    # Detect directory structure - find both npz and h5 files
     npz_files = list(batch_dir.glob("*.npz"))
+    h5_files = list(batch_dir.glob("*.h5"))
+    sample_files = npz_files + h5_files
     subdirs = [d for d in batch_dir.iterdir() if d.is_dir()]
-    
+
     samples = []
-    
-    if npz_files and not subdirs:
-        # Flat structure: folder/*.npz
-        print(f"Detected flat structure with {len(npz_files)} NPZ files")
-        for npz_file in sorted(npz_files):
-            sample_name = npz_file.stem  # filename without extension
+
+    if sample_files and not subdirs:
+        # Flat structure: folder/*.npz or folder/*.h5
+        print(f"Detected flat structure with {len(sample_files)} sample files ({len(npz_files)} NPZ, {len(h5_files)} H5)")
+        for sample_file in sorted(sample_files):
+            sample_name = sample_file.stem  # filename without extension
             samples.append({
                 'sample_name': sample_name,
-                'file_path': str(npz_file.relative_to(batch_dir)),
+                'file_path': str(sample_file.relative_to(batch_dir)),
                 'created_date': datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
             })
-    
+
     elif subdirs:
-        # Nested structure: folder/subfolder/*.npz
+        # Nested structure: folder/subfolder/*.npz or folder/subfolder/*.h5
         print(f"Detected nested structure with {len(subdirs)} subdirectories")
         for subdir in sorted(subdirs):
             subdir_npz = list(subdir.glob("*.npz"))
-            if subdir_npz:
-                for npz_file in sorted(subdir_npz):
+            subdir_h5 = list(subdir.glob("*.h5"))
+            subdir_files = subdir_npz + subdir_h5
+            if subdir_files:
+                for sample_file in sorted(subdir_files):
                     # Create unique sample name using subfolder and filename
-                    sample_name = f"{subdir.name}_{npz_file.stem}"
+                    sample_name = f"{subdir.name}_{sample_file.stem}"
                     samples.append({
                         'sample_name': sample_name,
-                        'file_path': str(npz_file.relative_to(batch_dir)),
+                        'file_path': str(sample_file.relative_to(batch_dir)),
                         'created_date': datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
                     })
             else:
-                print(f"Warning: No NPZ files found in {subdir}")
-    
+                print(f"Warning: No NPZ or H5 files found in {subdir}")
+
     else:
-        print("Error: No NPZ files found in batch directory")
+        print("Error: No NPZ or H5 files found in batch directory")
         sys.exit(1)
-    
+
     # Create template CSV
     df = pd.DataFrame(samples)
     df.to_csv(csv_path, index=False)
-    
+
     print(f"Template CSV created: {csv_path}")
     print(f"Found {len(samples)} sample files")
     print("CSV wasn't found, template created, can modify the sample names before running again (if using default names just run again)")
-    
+
     # Exit the program
     sys.exit(0)
 
-def load_batch_sample(batch_dir, sample_record):
+def load_batch_sample(batch_dir, sample_record, samples_key=None):
     """
     Load a single sample from batch directory.
-    
+
     Args:
         batch_dir: Path to batch directory
         sample_record: Dictionary with sample metadata from CSV
-    
+        samples_key: Optional key to use for loading data from the file
+
     Returns:
-        Tuple of (sample_name, npz_data) or None if failed
+        Tuple of (sample_name, data_dict, file_ext) or None if failed
+        data_dict contains the loaded data with the key used
     """
     batch_dir = Path(batch_dir)
     file_path = batch_dir / sample_record['file_path']
     sample_name = sample_record['sample_name']
-    
+    file_ext = file_path.suffix.lower()
+
     try:
         if not file_path.exists():
             print(f"Warning: File not found: {file_path}")
             return None
-            
-        npz_data = np.load(file_path)
-        print(f"Loaded sample '{sample_name}' from {file_path}")
-        return sample_name, npz_data
-        
+
+        if file_ext == '.npz':
+            data = np.load(file_path)
+            # Use specified key or default to arr_0
+            key = samples_key if samples_key else 'arr_0'
+            if key not in data:
+                available_keys = list(data.keys())
+                print(f"Warning: Key '{key}' not found in {file_path}. Available keys: {available_keys}")
+                return None
+            data_dict = {key: data[key]}
+            print(f"Loaded sample '{sample_name}' from {file_path} (key: {key})")
+            return sample_name, data_dict, file_ext
+
+        elif file_ext == '.h5':
+            with h5py.File(file_path, 'r') as f:
+                # Use specified key or default to sequences_onehot
+                key = samples_key if samples_key else 'sequences_onehot'
+                if key not in f:
+                    available_keys = list(f.keys())
+                    print(f"Warning: Key '{key}' not found in {file_path}. Available keys: {available_keys}")
+                    return None
+                data_dict = {key: f[key][()]}
+            print(f"Loaded sample '{sample_name}' from {file_path} (key: {key})")
+            return sample_name, data_dict, file_ext
+
+        else:
+            print(f"Warning: Unsupported file type: {file_ext}")
+            return None
+
     except Exception as e:
         print(f"Error loading {file_path}: {e}")
         return None
