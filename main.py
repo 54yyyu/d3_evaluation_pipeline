@@ -187,7 +187,7 @@ def load_data_and_model(args):
     print("Loading data and model...")
     
     # Load data
-    x_test, x_synthetic, x_train = extract_data(args.samples, args.data)
+    x_test, x_synthetic, x_train = extract_data(args.samples, args.data, args.samples_key)
     
     # Convert to tensors
     x_test_tensor = numpy_to_tensor(x_test)

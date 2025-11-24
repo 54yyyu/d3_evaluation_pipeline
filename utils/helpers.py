@@ -17,7 +17,8 @@ class EmbeddingExtractor:
     def hook(self, module, input, output):
         self.embedding = output.detach()
 
-def extract_data(samples_file_path, deepSTARR_data):
+def extract_data(samples_file_path, deepSTARR_data, samples_key=None):
+    samples_key = samples_key if samples_key else 'sequences_onehot'
    #load samples from .npz file
     if samples_file_path.endswith('.npz'):
         data = load(samples_file_path)
@@ -31,10 +32,10 @@ def extract_data(samples_file_path, deepSTARR_data):
     elif samples_file_path.endswith('.h5'):
         with h5py.File(samples_file_path, 'r') as f:
             try:
-                samples = f['sequences_onehot'][()]
+                samples = f[samples_key][()]
             except KeyError:
                 available_keys = list(f.keys())
-                raise KeyError(f"Key 'sequences_onehot' not found. Available keys: {available_keys}")
+                raise KeyError(f"Key '{samples_key}' not found. Available keys: {available_keys}")
             # check the shape of samples and transpose if needed
             if samples.shape != (41186, 4, 249):
                 x_synthetic = np.transpose(samples, (0, 2, 1))
