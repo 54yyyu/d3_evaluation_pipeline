@@ -30,7 +30,11 @@ def extract_data(samples_file_path, deepSTARR_data):
         x_synthetic = np.transpose(samples[0], (0, 2, 1))
     elif samples_file_path.endswith('.h5'):
         with h5py.File(samples_file_path, 'r') as f:
-            samples = f['sequences_onehot'][()]
+            try:
+                samples = f['sequences_onehot'][()]
+            except KeyError:
+                available_keys = list(f.keys())
+                raise KeyError(f"Key 'sequences_onehot' not found. Available keys: {available_keys}")
             # check the shape of samples and transpose if needed
             if samples.shape != (41186, 4, 249):
                 x_synthetic = np.transpose(samples, (0, 2, 1))
