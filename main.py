@@ -564,7 +564,10 @@ def run_batch_analysis(args):
                 x_synthetic = np.transpose(npz_data['first_sample'], (0, 2, 1))  # Convert to (N, 4, L)
                 sample_data_key = 'first_sample'
             else:
-                raise KeyError(f"Could not find 'arr_0' or 'first_sample' in NPZ file. Available keys: {list(npz_data.files)}")
+                # take the first available key
+                x_synthetic = np.transpose(npz_data[list(npz_data.files)[0]], (0, 2, 1))  # Convert to (N, 4, L)
+                sample_data_key = list(npz_data.files)[0]
+                print(f"Warning: Using key '{sample_data_key}' for synthetic sequences in NPZ file")
 
             # For SEI models, ensure sequences are padded to 4096
             if args.model_type.lower() == 'sei':
