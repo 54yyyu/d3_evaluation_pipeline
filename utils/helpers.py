@@ -138,7 +138,9 @@ def extract_data(samples_file_path, data_file):
         elif 'test_data' in npz_data.files:
             x_test = npz_data['test_data']
         else:
-            raise KeyError(f"Could not find test data in .npz file. Available keys: {npz_data.files}")
+            # take the first available key
+            x_test = npz_data[list(npz_data.files)[0]]
+            print(f"Warning: Using key '{list(npz_data.files)[0]}' for test data in .npz file")
 
         # Try different naming conventions for training data
         if 'x_train' in npz_data.files:
