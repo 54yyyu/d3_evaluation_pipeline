@@ -8,6 +8,9 @@ import glob
 import sys
 from pathlib import Path
 
+# Import from helpers for index-to-onehot conversion
+from .helpers import is_index_encoded, index_to_onehot
+
 def discover_batch_samples(batch_dir, csv_filename="metadata.csv"):
     """
     Discover samples in batch directory and handle CSV metadata.
@@ -112,6 +115,7 @@ def load_batch_sample(batch_dir, sample_record):
         if file_path.suffix == '.npz':
             data = np.load(file_path)
             print(f"Loaded NPZ sample '{sample_name}' from {file_path}")
+            # Note: NPZ files are returned as-is, conversion happens in main.py
             return sample_name, data
 
         elif file_path.suffix in ['.pt', '.pth']:
@@ -122,6 +126,13 @@ def load_batch_sample(batch_dir, sample_record):
             else:
                 print(f"Warning: Expected tensor in {file_path}, got {type(tensor_data)}")
                 return None
+
+            # Check if index-encoded and convert to one-hot if needed
+            if is_index_encoded(data):
+                print(f"  Detected index-encoded sequences (0123=ACGT). Converting to one-hot encoding...")
+                data = index_to_onehot(data)
+                print(f"  Converted to one-hot with shape: {data.shape}")
+
             print(f"Loaded PyTorch sample '{sample_name}' from {file_path}")
             return sample_name, data
 
@@ -131,6 +142,13 @@ def load_batch_sample(batch_dir, sample_record):
                 tensor_data = torch.load(file_path, map_location='cpu')
                 if isinstance(tensor_data, torch.Tensor):
                     data = tensor_data.numpy()
+
+                    # Check if index-encoded and convert to one-hot if needed
+                    if is_index_encoded(data):
+                        print(f"  Detected index-encoded sequences (0123=ACGT). Converting to one-hot encoding...")
+                        data = index_to_onehot(data)
+                        print(f"  Converted to one-hot with shape: {data.shape}")
+
                     print(f"Loaded PyTorch (h5 extension) sample '{sample_name}' from {file_path}")
                     return sample_name, data
             except:
@@ -150,6 +168,13 @@ def load_batch_sample(batch_dir, sample_record):
                         first_key = list(f.keys())[0]
                         data = f[first_key][()]
                         print(f"Warning: Using key '{first_key}' for sample data")
+
+                # Check if index-encoded and convert to one-hot if needed
+                if is_index_encoded(data):
+                    print(f"  Detected index-encoded sequences (0123=ACGT). Converting to one-hot encoding...")
+                    data = index_to_onehot(data)
+                    print(f"  Converted to one-hot with shape: {data.shape}")
+
                 print(f"Loaded HDF5 sample '{sample_name}' from {file_path}")
                 return sample_name, data
             except Exception as h5_error:

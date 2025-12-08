@@ -10,6 +10,66 @@ from deepstarr import *
 from mpralegnet import LitModel
 
 
+def is_index_encoded(sequences):
+    """
+    Detect if sequences are index-encoded (0123=ACGT) or one-hot encoded.
+
+    Args:
+        sequences: numpy array of sequences
+
+    Returns:
+        bool: True if index-encoded, False if one-hot encoded
+    """
+    # Index-encoded sequences are 2D (N, L) with integer values 0-3
+    # One-hot encoded sequences are 3D (N, L, 4) or (N, 4, L)
+
+    if sequences.ndim == 2:
+        # 2D array is likely index-encoded
+        # Check if values are integers in range [0, 3]
+        if np.issubdtype(sequences.dtype, np.integer):
+            unique_vals = np.unique(sequences)
+            if len(unique_vals) <= 4 and np.all((unique_vals >= 0) & (unique_vals <= 3)):
+                return True
+        # Also check if float values are effectively integers 0-3
+        elif np.issubdtype(sequences.dtype, np.floating):
+            if np.all(sequences == sequences.astype(int)):
+                int_seqs = sequences.astype(int)
+                unique_vals = np.unique(int_seqs)
+                if len(unique_vals) <= 4 and np.all((unique_vals >= 0) & (unique_vals <= 3)):
+                    return True
+
+    return False
+
+
+def index_to_onehot(sequences, num_classes=4):
+    """
+    Convert index-encoded sequences to one-hot encoding.
+
+    Args:
+        sequences: numpy array of shape (N, L) with values 0-3 representing ACGT
+        num_classes: number of classes (default 4 for DNA)
+
+    Returns:
+        numpy array of shape (N, L, 4) with one-hot encoding
+    """
+    # Ensure sequences are integers
+    sequences = sequences.astype(int)
+
+    # Get shape
+    N, L = sequences.shape
+
+    # Create one-hot encoding
+    one_hot = np.zeros((N, L, num_classes), dtype=np.float32)
+
+    # Fill in the one-hot encoding
+    for i in range(N):
+        for j in range(L):
+            if 0 <= sequences[i, j] < num_classes:
+                one_hot[i, j, sequences[i, j]] = 1.0
+
+    return one_hot
+
+
 def detect_data_format(file_path):
     """
     Detect the format of a data file.
@@ -113,7 +173,10 @@ def extract_data(samples_file_path, data_file):
         elif 'test_data' in npz_data.files:
             x_test = npz_data['test_data']
         else:
-            raise KeyError(f"Could not find test data in .npz file. Available keys: {npz_data.files}")
+            # Fallback to first key
+            first_key = npz_data.files[0]
+            x_test = npz_data[first_key]
+            print(f"Warning: Using key '{first_key}' for test data from NPZ file")
 
         # Try different naming conventions for training data
         if 'x_train' in npz_data.files:
@@ -123,14 +186,56 @@ def extract_data(samples_file_path, data_file):
         elif 'train_data' in npz_data.files:
             x_train = npz_data['train_data']
         else:
-            raise KeyError(f"Could not find training data in .npz file. Available keys: {npz_data.files}")
+            # Fallback to second key if available, otherwise first key
+            if len(npz_data.files) > 1:
+                second_key = npz_data.files[1]
+                x_train = npz_data[second_key]
+                print(f"Warning: Using key '{second_key}' for training data from NPZ file")
+            else:
+                first_key = npz_data.files[0]
+                x_train = npz_data[first_key]
+                print(f"Warning: Using key '{first_key}' for training data from NPZ file")
 
     else:
         # Load from .h5 file (existing functionality)
         with h5py.File(data_file, 'r') as f:
-            # Access the data for the specific X_test key
-            x_test = f['X_test'][()]
-            x_train = f['X_train'][()]
+            # Try different naming conventions for test data
+            if 'X_test' in f.keys():
+                x_test = f['X_test'][()]
+            elif 'x_test' in f.keys():
+                x_test = f['x_test'][()]
+            elif 'test_data' in f.keys():
+                x_test = f['test_data'][()]
+            else:
+                # Fallback to first key
+                first_key = list(f.keys())[0]
+                x_test = f[first_key][()]
+                print(f"Warning: Using key '{first_key}' for test data from H5 file")
+
+            # Try different naming conventions for training data
+            if 'X_train' in f.keys():
+                x_train = f['X_train'][()]
+            elif 'x_train' in f.keys():
+                x_train = f['x_train'][()]
+            elif 'train_data' in f.keys():
+                x_train = f['train_data'][()]
+            else:
+                # Fallback to second key if available, otherwise first key
+                keys = list(f.keys())
+                if len(keys) > 1:
+                    second_key = keys[1]
+                    x_train = f[second_key][()]
+                    print(f"Warning: Using key '{second_key}' for training data from H5 file")
+                else:
+                    first_key = keys[0]
+                    x_train = f[first_key][()]
+                    print(f"Warning: Using key '{first_key}' for training data from H5 file")
+
+    # Check if samples are index-encoded and convert to one-hot if needed
+    if is_index_encoded(samples[0]):
+        print(f"Detected index-encoded sequences (0123=ACGT). Converting to one-hot encoding...")
+        samples[0] = index_to_onehot(samples[0])
+        print(f"Converted to one-hot with shape: {samples[0].shape}")
 
     # Transpose samples to get shape (n, 4, seq_len)
     if samples[0].ndim == 3 and samples[0].shape[1] != 4:
@@ -206,7 +311,12 @@ def extract_lentimpra_data(samples_file_path, data_file):
             if x_test.shape[-1] == 4:  # (n, 230, 4) format
                 x_test = np.transpose(x_test, (0, 2, 1))  # Convert to (n, 4, 230)
         else:
-            raise KeyError(f"Could not find test data in .npz file. Available keys: {npz_data.files}")
+            # Fallback to first key
+            first_key = npz_data.files[0]
+            x_test = npz_data[first_key]
+            if x_test.shape[-1] == 4:  # (n, 230, 4) format
+                x_test = np.transpose(x_test, (0, 2, 1))  # Convert to (n, 4, 230)
+            print(f"Warning: Using key '{first_key}' for test data from NPZ file")
 
         # Try different naming conventions for training data
         if 'x_train' in npz_data.files:
@@ -220,7 +330,19 @@ def extract_lentimpra_data(samples_file_path, data_file):
             if x_train.shape[-1] == 4:  # (n, 230, 4) format
                 x_train = np.transpose(x_train, (0, 2, 1))  # Convert to (n, 4, 230)
         else:
-            raise KeyError(f"Could not find training data in .npz file. Available keys: {npz_data.files}")
+            # Fallback to second key if available, otherwise first key
+            if len(npz_data.files) > 1:
+                second_key = npz_data.files[1]
+                x_train = npz_data[second_key]
+                if x_train.shape[-1] == 4:  # (n, 230, 4) format
+                    x_train = np.transpose(x_train, (0, 2, 1))  # Convert to (n, 4, 230)
+                print(f"Warning: Using key '{second_key}' for training data from NPZ file")
+            else:
+                first_key = npz_data.files[0]
+                x_train = npz_data[first_key]
+                if x_train.shape[-1] == 4:  # (n, 230, 4) format
+                    x_train = np.transpose(x_train, (0, 2, 1))  # Convert to (n, 4, 230)
+                print(f"Warning: Using key '{first_key}' for training data from NPZ file")
 
     else:
         # Load from .h5 file (existing functionality)
@@ -256,7 +378,16 @@ def extract_lentimpra_data(samples_file_path, data_file):
                 else:
                     raise ValueError(f"Unexpected shape for X_test: {x_test.shape}. Expected (n, 4, 230) or (n, 230, 4)")
             else:
-                raise KeyError("Could not find test data in lentimpra file")
+                # Fallback to first key
+                first_key = list(f.keys())[0]
+                x_test = f[first_key][()]
+                print(f"Warning: Using key '{first_key}' for test data from H5 file")
+                print(f"Loaded '{first_key}' with shape: {x_test.shape}")
+                # Check if transpose is needed
+                if x_test.ndim == 3:
+                    if x_test.shape[-1] == 4 and x_test.shape[1] != 4:
+                        x_test = np.transpose(x_test, (0, 2, 1))
+                        print(f"Transposed to shape: {x_test.shape}")
 
             if 'onehot_train' in f.keys():
                 x_train = f['onehot_train'][()]
@@ -287,10 +418,38 @@ def extract_lentimpra_data(samples_file_path, data_file):
                 else:
                     raise ValueError(f"Unexpected shape for X_train: {x_train.shape}. Expected (n, 4, 230) or (n, 230, 4)")
             else:
-                raise KeyError("Could not find training data in lentimpra file")
+                # Fallback to second key if available, otherwise first key
+                keys = list(f.keys())
+                if len(keys) > 1:
+                    second_key = keys[1]
+                    x_train = f[second_key][()]
+                    print(f"Warning: Using key '{second_key}' for training data from H5 file")
+                    print(f"Loaded '{second_key}' with shape: {x_train.shape}")
+                    # Check if transpose is needed
+                    if x_train.ndim == 3:
+                        if x_train.shape[-1] == 4 and x_train.shape[1] != 4:
+                            x_train = np.transpose(x_train, (0, 2, 1))
+                            print(f"Transposed to shape: {x_train.shape}")
+                else:
+                    first_key = keys[0]
+                    x_train = f[first_key][()]
+                    print(f"Warning: Using key '{first_key}' for training data from H5 file")
+                    print(f"Loaded '{first_key}' with shape: {x_train.shape}")
+                    # Check if transpose is needed
+                    if x_train.ndim == 3:
+                        if x_train.shape[-1] == 4 and x_train.shape[1] != 4:
+                            x_train = np.transpose(x_train, (0, 2, 1))
+                            print(f"Transposed to shape: {x_train.shape}")
 
     # Handle samples - they should be 230 length for lentimpra
     print(f"Loaded samples with shape: {samples[0].shape}")
+
+    # Check if samples are index-encoded and convert to one-hot if needed
+    if is_index_encoded(samples[0]):
+        print(f"Detected index-encoded sequences (0123=ACGT). Converting to one-hot encoding...")
+        samples[0] = index_to_onehot(samples[0])
+        print(f"Converted to one-hot with shape: {samples[0].shape}")
+
     if samples[0].ndim != 3:
         raise ValueError(f"Expected 3D array for samples, got {samples[0].ndim}D with shape {samples[0].shape}")
 
