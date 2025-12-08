@@ -8,8 +8,8 @@ import glob
 import sys
 from pathlib import Path
 
-# Import from helpers for index-to-onehot conversion
-from .helpers import is_index_encoded, index_to_onehot
+# Import from helpers for data loading
+from .helpers import load_file_by_type, is_index_encoded, index_to_onehot
 
 def discover_batch_samples(batch_dir, csv_filename="metadata.csv"):
     """
@@ -90,17 +90,17 @@ def discover_batch_samples(batch_dir, csv_filename="metadata.csv"):
     # Exit the program
     sys.exit(0)
 
-def load_batch_sample(batch_dir, sample_record):
+def load_batch_sample(batch_dir, sample_record, samples_keys=None):
     """
     Load a single sample from batch directory.
 
     Args:
         batch_dir: Path to batch directory
         sample_record: Dictionary with sample metadata from CSV
+        samples_keys: Optional list of keys to load from sample files
 
     Returns:
         Tuple of (sample_name, data) or None if failed
-        Data can be npz object, numpy array, or torch tensor depending on file type
     """
     batch_dir = Path(batch_dir)
     file_path = batch_dir / sample_record['file_path']
@@ -111,78 +111,17 @@ def load_batch_sample(batch_dir, sample_record):
             print(f"Warning: File not found: {file_path}")
             return None
 
-        # Determine file type and load accordingly
-        if file_path.suffix == '.npz':
+        data, key_used, file_type = load_file_by_type(
+            str(file_path), 'samples', samples_keys, model_type='deepstarr'
+        )
+
+        if file_type == 'npz':
             data = np.load(file_path)
             print(f"Loaded NPZ sample '{sample_name}' from {file_path}")
-            # Note: NPZ files are returned as-is, conversion happens in main.py
-            return sample_name, data
-
-        elif file_path.suffix in ['.pt', '.pth']:
-            # Load PyTorch tensor
-            tensor_data = torch.load(file_path, map_location='cpu')
-            if isinstance(tensor_data, torch.Tensor):
-                data = tensor_data.numpy()
-            else:
-                print(f"Warning: Expected tensor in {file_path}, got {type(tensor_data)}")
-                return None
-
-            # Check if index-encoded and convert to one-hot if needed
-            if is_index_encoded(data):
-                print(f"  Detected index-encoded sequences (0123=ACGT). Converting to one-hot encoding...")
-                data = index_to_onehot(data)
-                print(f"  Converted to one-hot with shape: {data.shape}")
-
-            print(f"Loaded PyTorch sample '{sample_name}' from {file_path}")
-            return sample_name, data
-
-        elif file_path.suffix in ['.h5', '.hdf5']:
-            # Try loading as PyTorch first (some .h5 files are actually PyTorch)
-            try:
-                tensor_data = torch.load(file_path, map_location='cpu')
-                if isinstance(tensor_data, torch.Tensor):
-                    data = tensor_data.numpy()
-
-                    # Check if index-encoded and convert to one-hot if needed
-                    if is_index_encoded(data):
-                        print(f"  Detected index-encoded sequences (0123=ACGT). Converting to one-hot encoding...")
-                        data = index_to_onehot(data)
-                        print(f"  Converted to one-hot with shape: {data.shape}")
-
-                    print(f"Loaded PyTorch (h5 extension) sample '{sample_name}' from {file_path}")
-                    return sample_name, data
-            except:
-                pass
-
-            # If that fails, try as HDF5
-            try:
-                with h5py.File(file_path, 'r') as f:
-                    # Load first key as data
-                    if 'arr_0' in f.keys():
-                        data = f['arr_0'][()]
-                    elif 'samples' in f.keys():
-                        data = f['samples'][()]
-                    elif 'x_synthetic' in f.keys():
-                        data = f['x_synthetic'][()]
-                    else:
-                        first_key = list(f.keys())[0]
-                        data = f[first_key][()]
-                        print(f"Warning: Using key '{first_key}' for sample data")
-
-                # Check if index-encoded and convert to one-hot if needed
-                if is_index_encoded(data):
-                    print(f"  Detected index-encoded sequences (0123=ACGT). Converting to one-hot encoding...")
-                    data = index_to_onehot(data)
-                    print(f"  Converted to one-hot with shape: {data.shape}")
-
-                print(f"Loaded HDF5 sample '{sample_name}' from {file_path}")
-                return sample_name, data
-            except Exception as h5_error:
-                print(f"Error loading as HDF5: {h5_error}")
-                return None
         else:
-            print(f"Warning: Unsupported file type: {file_path.suffix}")
-            return None
+            print(f"Loaded {file_type.upper()} sample '{sample_name}' from {file_path}")
+
+        return sample_name, data
 
     except Exception as e:
         print(f"Error loading {file_path}: {e}")

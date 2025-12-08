@@ -70,6 +70,185 @@ def index_to_onehot(sequences, num_classes=4):
     return one_hot
 
 
+KEY_PRIORITIES = {
+    'samples': {
+        'h5': ['arr_0', 'samples', 'x_synthetic', 'synthetic_data',
+               'shuffled_sequences', 'sequences_onehot'],
+        'npz': 'all_keys'
+    },
+    'test': {
+        'h5': ['X_test', 'x_test', 'test_data'],
+        'h5_lentimpra': ['onehot_test', 'X_test', 'x_test', 'test_data'],
+        'npz': ['X_test', 'x_test', 'test_data'],
+        'npz_lentimpra': ['onehot_test', 'X_test', 'x_test', 'test_data']
+    },
+    'train': {
+        'h5': ['X_train', 'x_train', 'train_data'],
+        'h5_lentimpra': ['onehot_train', 'X_train', 'x_train', 'train_data'],
+        'npz': ['X_train', 'x_train', 'train_data'],
+        'npz_lentimpra': ['onehot_train', 'X_train', 'x_train', 'train_data']
+    }
+}
+
+
+def resolve_key_from_file(file_handle, file_type, data_category, user_keys=None, model_type='deepstarr'):
+    """
+    Resolve and load data from a file using priority-based key matching.
+
+    Args:
+        file_handle: Open file handle (h5py.File or np.lib.npyio.NpzFile)
+        file_type: 'npz' or 'h5'
+        data_category: 'samples', 'test', or 'train'
+        user_keys: User-specified keys via --samples-key (overrides defaults)
+        model_type: Model type affects priority for lentimpra
+
+    Returns:
+        Tuple of (data_array, key_used) or (data_list, keys_used) for NPZ samples
+    """
+    available_keys = list(file_handle.keys()) if file_type == 'h5' else file_handle.files
+
+    if user_keys:
+        for key in user_keys:
+            if key in available_keys:
+                data = file_handle[key][()] if file_type == 'h5' else file_handle[key]
+                return data, key
+        raise KeyError(f"None of the specified keys {user_keys} found in {file_type} file. Available: {available_keys}")
+
+    priority_key = f"{file_type}_{model_type}" if model_type in ['lentimpra', 'mpralegnet', 'multi-oracle'] else file_type
+    priorities = KEY_PRIORITIES.get(data_category, {}).get(priority_key, KEY_PRIORITIES[data_category].get(file_type, []))
+
+    if priorities == 'all_keys' and data_category == 'samples':
+        data_list = [file_handle[key] for key in available_keys]
+        return data_list, available_keys
+
+    for key in priorities:
+        if key in available_keys:
+            data = file_handle[key][()] if file_type == 'h5' else file_handle[key]
+            return data, key
+
+    if data_category == 'test':
+        fallback_key = available_keys[0]
+    elif data_category == 'train':
+        fallback_key = available_keys[1] if len(available_keys) > 1 else available_keys[0]
+    else:
+        fallback_key = available_keys[0]
+
+    print(f"Warning: Using key '{fallback_key}' for {data_category} data from {file_type.upper()} file")
+    data = file_handle[fallback_key][()] if file_type == 'h5' else file_handle[fallback_key]
+    return data, fallback_key
+
+
+def load_file_by_type(file_path, data_category, user_keys=None, model_type='deepstarr'):
+    """
+    Load data from NPZ, H5, or PT file.
+
+    Args:
+        file_path: Path to the data file
+        data_category: 'samples', 'test', or 'train'
+        user_keys: User-specified keys (overrides defaults)
+        model_type: Model type affects priority for lentimpra
+
+    Returns:
+        Tuple of (data_array, key_used, file_type)
+    """
+    if file_path.endswith(('.pt', '.pth')):
+        tensor_data = torch.load(file_path, map_location='cpu')
+        if isinstance(tensor_data, torch.Tensor):
+            return tensor_data.numpy(), 'tensor', 'pt'
+        else:
+            raise ValueError(f"Expected tensor in .pt file, got {type(tensor_data)}")
+
+    elif file_path.endswith(('.h5', '.hdf5')):
+        try:
+            tensor_data = torch.load(file_path, map_location='cpu')
+            if isinstance(tensor_data, torch.Tensor):
+                return tensor_data.numpy(), 'tensor', 'pt'
+        except:
+            pass
+
+        with h5py.File(file_path, 'r') as f:
+            data, key_used = resolve_key_from_file(f, 'h5', data_category, user_keys, model_type)
+        return data, key_used, 'h5'
+
+    elif file_path.endswith('.npz'):
+        npz_data = load(file_path)
+        data, key_used = resolve_key_from_file(npz_data, 'npz', data_category, user_keys, model_type)
+        return data, key_used, 'npz'
+
+    else:
+        raise ValueError(f"Unsupported file format: {file_path}")
+
+
+def ensure_correct_shape(data, expected_channels=4, data_name="data"):
+    """
+    Ensure data is in (N, 4, L) format.
+
+    Handles:
+    - Index-encoded (N, L) → one-hot (N, L, 4) → transpose (N, 4, L)
+    - One-hot (N, L, 4) → transpose → (N, 4, L)
+    - Already correct (N, 4, L) → no change
+
+    Args:
+        data: Input data array
+        expected_channels: Expected number of channels (default 4 for DNA)
+        data_name: Name for logging
+
+    Returns:
+        Data in (N, 4, L) format
+    """
+    if is_index_encoded(data):
+        print(f"Detected index-encoded {data_name} (0123=ACGT). Converting to one-hot encoding...")
+        data = index_to_onehot(data)
+        print(f"Converted to one-hot with shape: {data.shape}")
+
+    if data.ndim != 3:
+        raise ValueError(f"Expected 3D array for {data_name}, got {data.ndim}D with shape {data.shape}")
+
+    if data.shape[1] == expected_channels:
+        return data
+    elif data.shape[-1] == expected_channels:
+        return np.transpose(data, (0, 2, 1))
+    else:
+        raise ValueError(f"Unexpected shape for {data_name}: {data.shape}. Expected channel dimension to be {expected_channels}")
+
+
+def extract_sequences(samples_file_path, data_file_path, samples_keys=None, test_keys=None, train_keys=None, model_type='deepstarr'):
+    """
+    Extract test, synthetic, and training sequences from files.
+
+    Handles all file formats (NPZ, H5, PT) and model types.
+    Automatically detects and converts index-encoded sequences.
+    Transposes to correct shape (N, 4, L).
+
+    Args:
+        samples_file_path: Path to synthetic samples file
+        data_file_path: Path to test/train data file
+        samples_keys: User-specified keys for samples (via --samples-key)
+        test_keys: User-specified keys for test data
+        train_keys: User-specified keys for train data
+        model_type: 'deepstarr', 'mpralegnet', 'lentimpra', or 'multi-oracle'
+
+    Returns:
+        Tuple of (x_test, x_synthetic, x_train) in shape (N, 4, L)
+    """
+    samples_data, _, _ = load_file_by_type(samples_file_path, 'samples', samples_keys, model_type)
+
+    if isinstance(samples_data, list):
+        x_synthetic = ensure_correct_shape(samples_data[0], data_name="samples")
+    else:
+        x_synthetic = ensure_correct_shape(samples_data, data_name="samples")
+
+    x_test, _, _ = load_file_by_type(data_file_path, 'test', test_keys, model_type)
+    if x_test.ndim == 3 and x_test.shape[-1] == 4 and x_test.shape[1] != 4:
+        x_test = np.transpose(x_test, (0, 2, 1))
+
+    x_train, _, _ = load_file_by_type(data_file_path, 'train', train_keys, model_type)
+    if x_train.ndim == 3 and x_train.shape[-1] == 4 and x_train.shape[1] != 4:
+        x_train = np.transpose(x_train, (0, 2, 1))
+
+    return x_test, x_synthetic, x_train
+
+
 def detect_data_format(file_path):
     """
     Detect the format of a data file.
@@ -127,344 +306,6 @@ class EmbeddingExtractor:
     def hook(self, module, input, output):
         self.embedding = output.detach()
 
-def extract_data(samples_file_path, data_file):
-    """Extract data for deepstarr from either .h5 or .npz files."""
-    # Load samples from .npz or .h5 file
-    if samples_file_path.endswith('.npz'):
-        data = load(samples_file_path)
-        samples = []
-        lst = data.files
-        for item in lst:
-            samples.append(data[item])
-    elif samples_file_path.endswith('.h5') or samples_file_path.endswith('.hdf5'):
-        with h5py.File(samples_file_path, 'r') as f:
-            samples = []
-            # Try common naming conventions for samples
-            if 'arr_0' in f.keys():
-                samples.append(f['arr_0'][()])
-            elif 'samples' in f.keys():
-                samples.append(f['samples'][()])
-            elif 'x_synthetic' in f.keys():
-                samples.append(f['x_synthetic'][()])
-            elif 'synthetic_data' in f.keys():
-                samples.append(f['synthetic_data'][()])
-            elif 'shuffled_sequences' in f.keys():
-                samples.append(f['shuffled_sequences'][()])
-            elif 'sequences_onehot' in f.keys():
-                samples.append(f['sequences_onehot'][()])
-            else:
-                # Take the first available key
-                first_key = list(f.keys())[0]
-                samples.append(f[first_key][()])
-                print(f"Warning: Using key '{first_key}' for samples from H5 file")
-    else:
-        raise ValueError(f"Unsupported samples file format. Expected .npz or .h5/.hdf5, got: {samples_file_path}")
-
-    # Load training/test data based on file format
-    if data_file.endswith('.npz'):
-        # Load from .npz file
-        npz_data = load(data_file)
-
-        # Try different naming conventions for test data
-        if 'x_test' in npz_data.files:
-            x_test = npz_data['x_test']
-        elif 'X_test' in npz_data.files:
-            x_test = npz_data['X_test']
-        elif 'test_data' in npz_data.files:
-            x_test = npz_data['test_data']
-        else:
-            # Fallback to first key
-            first_key = npz_data.files[0]
-            x_test = npz_data[first_key]
-            print(f"Warning: Using key '{first_key}' for test data from NPZ file")
-
-        # Try different naming conventions for training data
-        if 'x_train' in npz_data.files:
-            x_train = npz_data['x_train']
-        elif 'X_train' in npz_data.files:
-            x_train = npz_data['X_train']
-        elif 'train_data' in npz_data.files:
-            x_train = npz_data['train_data']
-        else:
-            # Fallback to second key if available, otherwise first key
-            if len(npz_data.files) > 1:
-                second_key = npz_data.files[1]
-                x_train = npz_data[second_key]
-                print(f"Warning: Using key '{second_key}' for training data from NPZ file")
-            else:
-                first_key = npz_data.files[0]
-                x_train = npz_data[first_key]
-                print(f"Warning: Using key '{first_key}' for training data from NPZ file")
-
-    else:
-        # Load from .h5 file (existing functionality)
-        with h5py.File(data_file, 'r') as f:
-            # Try different naming conventions for test data
-            if 'X_test' in f.keys():
-                x_test = f['X_test'][()]
-            elif 'x_test' in f.keys():
-                x_test = f['x_test'][()]
-            elif 'test_data' in f.keys():
-                x_test = f['test_data'][()]
-            else:
-                # Fallback to first key
-                first_key = list(f.keys())[0]
-                x_test = f[first_key][()]
-                print(f"Warning: Using key '{first_key}' for test data from H5 file")
-
-            # Try different naming conventions for training data
-            if 'X_train' in f.keys():
-                x_train = f['X_train'][()]
-            elif 'x_train' in f.keys():
-                x_train = f['x_train'][()]
-            elif 'train_data' in f.keys():
-                x_train = f['train_data'][()]
-            else:
-                # Fallback to second key if available, otherwise first key
-                keys = list(f.keys())
-                if len(keys) > 1:
-                    second_key = keys[1]
-                    x_train = f[second_key][()]
-                    print(f"Warning: Using key '{second_key}' for training data from H5 file")
-                else:
-                    first_key = keys[0]
-                    x_train = f[first_key][()]
-                    print(f"Warning: Using key '{first_key}' for training data from H5 file")
-
-    # Check if samples are index-encoded and convert to one-hot if needed
-    if is_index_encoded(samples[0]):
-        print(f"Detected index-encoded sequences (0123=ACGT). Converting to one-hot encoding...")
-        samples[0] = index_to_onehot(samples[0])
-        print(f"Converted to one-hot with shape: {samples[0].shape}")
-
-    # Transpose samples to get shape (n, 4, seq_len)
-    if samples[0].ndim == 3 and samples[0].shape[1] != 4:
-        # Transpose from (n, seq_len, 4) to (n, 4, seq_len)
-        x_synthetic = np.transpose(samples[0], (0, 2, 1))
-    else:
-        # Already in correct format
-        x_synthetic = samples[0]
-
-    return x_test, x_synthetic, x_train
-
-def extract_lentimpra_data(samples_file_path, data_file):
-    """Extract data for lentimpra with 230-length sequences from .h5, .npz, or .pt files."""
-    # Load samples from .npz, .h5, or .pt file
-    if samples_file_path.endswith('.npz'):
-        data = load(samples_file_path)
-        samples = []
-        lst = data.files
-        for item in lst:
-            samples.append(data[item])
-    elif samples_file_path.endswith(('.pt', '.pth')):
-        # Load PyTorch tensor file
-        tensor_data = torch.load(samples_file_path, map_location='cpu')
-        if isinstance(tensor_data, torch.Tensor):
-            samples = [tensor_data.numpy()]
-        else:
-            raise ValueError(f"Expected tensor in .pt file, got {type(tensor_data)}")
-    elif samples_file_path.endswith('.h5') or samples_file_path.endswith('.hdf5'):
-        # First try to load as PyTorch (some files have .h5 extension but are actually PyTorch)
-        try:
-            tensor_data = torch.load(samples_file_path, map_location='cpu')
-            if isinstance(tensor_data, torch.Tensor):
-                samples = [tensor_data.numpy()]
-            else:
-                raise ValueError(f"Expected tensor in file, got {type(tensor_data)}")
-        except:
-            # If that fails, try as actual HDF5
-            with h5py.File(samples_file_path, 'r') as f:
-                samples = []
-                # Try common naming conventions for samples
-                if 'arr_0' in f.keys():
-                    samples.append(f['arr_0'][()])
-                elif 'samples' in f.keys():
-                    samples.append(f['samples'][()])
-                elif 'x_synthetic' in f.keys():
-                    samples.append(f['x_synthetic'][()])
-                elif 'synthetic_data' in f.keys():
-                    samples.append(f['synthetic_data'][()])
-                elif 'sequences_onehot' in f.keys():
-                    samples.append(f['sequences_onehot'][()])
-                else:
-                    # Take the first available key
-                    first_key = list(f.keys())[0]
-                    samples.append(f[first_key][()])
-                    print(f"Warning: Using key '{first_key}' for samples from H5 file")
-    else:
-        raise ValueError(f"Unsupported samples file format. Expected .npz, .h5/.hdf5, or .pt/.pth, got: {samples_file_path}")
-
-    # Load training/test data based on file format
-    if data_file.endswith('.npz'):
-        # Load from .npz file
-        npz_data = load(data_file)
-
-        # Try different naming conventions for test data
-        if 'x_test' in npz_data.files:
-            x_test = npz_data['x_test']
-        elif 'X_test' in npz_data.files:
-            x_test = npz_data['X_test']
-        elif 'test_data' in npz_data.files:
-            x_test = npz_data['test_data']
-        elif 'onehot_test' in npz_data.files:
-            x_test = npz_data['onehot_test']
-            if x_test.shape[-1] == 4:  # (n, 230, 4) format
-                x_test = np.transpose(x_test, (0, 2, 1))  # Convert to (n, 4, 230)
-        else:
-            # Fallback to first key
-            first_key = npz_data.files[0]
-            x_test = npz_data[first_key]
-            if x_test.shape[-1] == 4:  # (n, 230, 4) format
-                x_test = np.transpose(x_test, (0, 2, 1))  # Convert to (n, 4, 230)
-            print(f"Warning: Using key '{first_key}' for test data from NPZ file")
-
-        # Try different naming conventions for training data
-        if 'x_train' in npz_data.files:
-            x_train = npz_data['x_train']
-        elif 'X_train' in npz_data.files:
-            x_train = npz_data['X_train']
-        elif 'train_data' in npz_data.files:
-            x_train = npz_data['train_data']
-        elif 'onehot_train' in npz_data.files:
-            x_train = npz_data['onehot_train']
-            if x_train.shape[-1] == 4:  # (n, 230, 4) format
-                x_train = np.transpose(x_train, (0, 2, 1))  # Convert to (n, 4, 230)
-        else:
-            # Fallback to second key if available, otherwise first key
-            if len(npz_data.files) > 1:
-                second_key = npz_data.files[1]
-                x_train = npz_data[second_key]
-                if x_train.shape[-1] == 4:  # (n, 230, 4) format
-                    x_train = np.transpose(x_train, (0, 2, 1))  # Convert to (n, 4, 230)
-                print(f"Warning: Using key '{second_key}' for training data from NPZ file")
-            else:
-                first_key = npz_data.files[0]
-                x_train = npz_data[first_key]
-                if x_train.shape[-1] == 4:  # (n, 230, 4) format
-                    x_train = np.transpose(x_train, (0, 2, 1))  # Convert to (n, 4, 230)
-                print(f"Warning: Using key '{first_key}' for training data from NPZ file")
-
-    else:
-        # Load from .h5 file (existing functionality)
-        with h5py.File(data_file, 'r') as f:
-            # Access the data for lentimpra format
-            # Assuming similar structure but with onehot_test and onehot_train
-            if 'onehot_test' in f.keys():
-                x_test = f['onehot_test'][()]
-                print(f"Loaded 'onehot_test' with shape: {x_test.shape}")
-                # Check if transpose is needed
-                if x_test.ndim != 3:
-                    raise ValueError(f"Expected 3D array for onehot_test, got {x_test.ndim}D with shape {x_test.shape}")
-                if x_test.shape[-1] == 4 and x_test.shape[1] != 4:
-                    # shape: (n, 230, 4) -> transpose to (n, 4, 230)
-                    x_test = np.transpose(x_test, (0, 2, 1))
-                    print(f"Transposed onehot_test to shape: {x_test.shape}")
-                elif x_test.shape[1] == 4:
-                    # Already in correct format (n, 4, 230)
-                    print(f"onehot_test already in correct format: {x_test.shape}")
-            elif 'X_test' in f.keys():
-                x_test = f['X_test'][()]
-                print(f"Loaded 'X_test' with shape: {x_test.shape}")
-                # Check dimensions and transpose if needed
-                if x_test.ndim != 3:
-                    raise ValueError(f"Expected 3D array for X_test, got {x_test.ndim}D with shape {x_test.shape}")
-                if x_test.shape[-1] == 4 and x_test.shape[1] != 4:
-                    # shape: (n, 230, 4) -> transpose to (n, 4, 230)
-                    x_test = np.transpose(x_test, (0, 2, 1))
-                    print(f"Transposed X_test to shape: {x_test.shape}")
-                elif x_test.shape[1] == 4:
-                    # Already in correct format (n, 4, 230)
-                    print(f"X_test already in correct format: {x_test.shape}")
-                else:
-                    raise ValueError(f"Unexpected shape for X_test: {x_test.shape}. Expected (n, 4, 230) or (n, 230, 4)")
-            else:
-                # Fallback to first key
-                first_key = list(f.keys())[0]
-                x_test = f[first_key][()]
-                print(f"Warning: Using key '{first_key}' for test data from H5 file")
-                print(f"Loaded '{first_key}' with shape: {x_test.shape}")
-                # Check if transpose is needed
-                if x_test.ndim == 3:
-                    if x_test.shape[-1] == 4 and x_test.shape[1] != 4:
-                        x_test = np.transpose(x_test, (0, 2, 1))
-                        print(f"Transposed to shape: {x_test.shape}")
-
-            if 'onehot_train' in f.keys():
-                x_train = f['onehot_train'][()]
-                print(f"Loaded 'onehot_train' with shape: {x_train.shape}")
-                # Check if transpose is needed
-                if x_train.ndim != 3:
-                    raise ValueError(f"Expected 3D array for onehot_train, got {x_train.ndim}D with shape {x_train.shape}")
-                if x_train.shape[-1] == 4 and x_train.shape[1] != 4:
-                    # shape: (n, 230, 4) -> transpose to (n, 4, 230)
-                    x_train = np.transpose(x_train, (0, 2, 1))
-                    print(f"Transposed onehot_train to shape: {x_train.shape}")
-                elif x_train.shape[1] == 4:
-                    # Already in correct format (n, 4, 230)
-                    print(f"onehot_train already in correct format: {x_train.shape}")
-            elif 'X_train' in f.keys():
-                x_train = f['X_train'][()]
-                print(f"Loaded 'X_train' with shape: {x_train.shape}")
-                # Check dimensions and transpose if needed
-                if x_train.ndim != 3:
-                    raise ValueError(f"Expected 3D array for X_train, got {x_train.ndim}D with shape {x_train.shape}")
-                if x_train.shape[-1] == 4 and x_train.shape[1] != 4:
-                    # shape: (n, 230, 4) -> transpose to (n, 4, 230)
-                    x_train = np.transpose(x_train, (0, 2, 1))
-                    print(f"Transposed X_train to shape: {x_train.shape}")
-                elif x_train.shape[1] == 4:
-                    # Already in correct format (n, 4, 230)
-                    print(f"X_train already in correct format: {x_train.shape}")
-                else:
-                    raise ValueError(f"Unexpected shape for X_train: {x_train.shape}. Expected (n, 4, 230) or (n, 230, 4)")
-            else:
-                # Fallback to second key if available, otherwise first key
-                keys = list(f.keys())
-                if len(keys) > 1:
-                    second_key = keys[1]
-                    x_train = f[second_key][()]
-                    print(f"Warning: Using key '{second_key}' for training data from H5 file")
-                    print(f"Loaded '{second_key}' with shape: {x_train.shape}")
-                    # Check if transpose is needed
-                    if x_train.ndim == 3:
-                        if x_train.shape[-1] == 4 and x_train.shape[1] != 4:
-                            x_train = np.transpose(x_train, (0, 2, 1))
-                            print(f"Transposed to shape: {x_train.shape}")
-                else:
-                    first_key = keys[0]
-                    x_train = f[first_key][()]
-                    print(f"Warning: Using key '{first_key}' for training data from H5 file")
-                    print(f"Loaded '{first_key}' with shape: {x_train.shape}")
-                    # Check if transpose is needed
-                    if x_train.ndim == 3:
-                        if x_train.shape[-1] == 4 and x_train.shape[1] != 4:
-                            x_train = np.transpose(x_train, (0, 2, 1))
-                            print(f"Transposed to shape: {x_train.shape}")
-
-    # Handle samples - they should be 230 length for lentimpra
-    print(f"Loaded samples with shape: {samples[0].shape}")
-
-    # Check if samples are index-encoded and convert to one-hot if needed
-    if is_index_encoded(samples[0]):
-        print(f"Detected index-encoded sequences (0123=ACGT). Converting to one-hot encoding...")
-        samples[0] = index_to_onehot(samples[0])
-        print(f"Converted to one-hot with shape: {samples[0].shape}")
-
-    if samples[0].ndim != 3:
-        raise ValueError(f"Expected 3D array for samples, got {samples[0].ndim}D with shape {samples[0].shape}")
-
-    if samples[0].shape[-1] == 230 and samples[0].shape[1] == 4:
-        # Already correct format: (n, 4, 230)
-        x_synthetic = samples[0]
-        print(f"Samples already in correct format: {x_synthetic.shape}")
-    elif samples[0].shape[-1] == 4 and samples[0].shape[1] == 230:
-        # Need to transpose: (n, 230, 4) -> (n, 4, 230)
-        x_synthetic = np.transpose(samples[0], (0, 2, 1))
-        print(f"Transposed samples to shape: {x_synthetic.shape}")
-    else:
-        raise ValueError(f"Unexpected shape for samples: {samples[0].shape}. Expected (n, 4, 230) or (n, 230, 4)")
-
-    return x_test, x_synthetic, x_train
 
 def numpy_to_tensor(array):
     return torch.from_numpy(array).float()
