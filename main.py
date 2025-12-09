@@ -28,7 +28,7 @@ import json
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from deepstarr import PL_DeepSTARR
-from utils.helpers import extract_data, extract_lentimpra_data, numpy_to_tensor, load_deepstarr, load_oracle_model, load_multi_oracle_models, is_index_encoded, index_to_onehot
+from utils.helpers import extract_sequences, load_file_by_type, numpy_to_tensor, load_deepstarr, load_oracle_model, load_multi_oracle_models, is_index_encoded, index_to_onehot
 # Legacy imports removed - using only modular imports now
 
 # New modular imports
@@ -100,6 +100,15 @@ def parse_arguments():
     parser.add_argument('--motif-db', type=str,
                        default='JASPAR2024_CORE_non-redundant_pfms_meme.txt',
                        help='Path to motif database file for motif analysis (default: JASPAR2024_CORE_non-redundant_pfms_meme.txt)')
+
+    parser.add_argument('--samples-key', type=str,
+                       help='Comma-separated keys for samples file (e.g., "arr_0" or "seq1,seq2"). Overrides default key detection.')
+
+    parser.add_argument('--test-key', type=str,
+                       help='Comma-separated keys for test data (e.g., "X_test"). Overrides default key detection.')
+
+    parser.add_argument('--train-key', type=str,
+                       help='Comma-separated keys for train data (e.g., "X_train"). Overrides default key detection.')
 
     parser.add_argument('--per_dimension', action='store_true',
                        help='For multi-oracle models, compute and return metrics separately for each of the 3 oracles instead of averaging (default: False)')
@@ -206,15 +215,23 @@ def print_analysis_summary(analysis_name, results):
     print(f"✓ {analysis_name.replace('_', ' ').title()} completed and saved")
 
 
+def parse_keys(key_arg):
+    """Parse comma-separated keys to list."""
+    return [k.strip() for k in key_arg.split(',')] if key_arg else None
+
+
 def load_data_and_model(args):
     """Load all required data and model."""
     print(f"Loading data and model (model type: {args.model_type})...")
 
-    # Load data based on model type
-    if args.model_type.lower() in ['mpralegnet', 'lentimpra', 'multi-oracle']:
-        x_test, x_synthetic, x_train = extract_lentimpra_data(args.samples, args.data)
-    else:
-        x_test, x_synthetic, x_train = extract_data(args.samples, args.data)
+    x_test, x_synthetic, x_train = extract_sequences(
+        args.samples,
+        args.data,
+        samples_keys=parse_keys(args.samples_key),
+        test_keys=parse_keys(args.test_key),
+        train_keys=parse_keys(args.train_key),
+        model_type=args.model_type
+    )
 
     # Convert to tensors
     x_test_tensor = numpy_to_tensor(x_test)
@@ -227,90 +244,15 @@ def load_data_and_model(args):
     else:
         oracle_model = load_oracle_model(args.model, args.model_type)
 
-    # Load sample sequences for attribution analysis
-    if args.samples.endswith('.npz'):
-        samples = np.load(args.samples)
-        sample_seqs = samples['arr_0']
-    elif args.samples.endswith('.h5') or args.samples.endswith('.hdf5'):
-        with h5py.File(args.samples, 'r') as f:
-            # Try common naming conventions for samples
-            if 'arr_0' in f.keys():
-                sample_seqs = f['arr_0'][()]
-            elif 'samples' in f.keys():
-                sample_seqs = f['samples'][()]
-            elif 'x_synthetic' in f.keys():
-                sample_seqs = f['x_synthetic'][()]
-            elif 'synthetic_data' in f.keys():
-                sample_seqs = f['synthetic_data'][()]
-            else:
-                # Take the first available key
-                first_key = list(f.keys())[0]
-                sample_seqs = f[first_key][()]
-                print(f"Warning: Using key '{first_key}' for samples from H5 file")
-    else:
-        raise ValueError(f"Unsupported samples file format. Expected .npz or .h5/.hdf5, got: {args.samples}")
+    sample_seqs_raw, _, _ = load_file_by_type(
+        args.samples, 'samples', parse_keys(args.samples_key), args.model_type
+    )
+    sample_seqs = torch.tensor(sample_seqs_raw, dtype=torch.float32)
 
-    sample_seqs = torch.tensor(sample_seqs, dtype=torch.float32)
-
-    # Load test data for attribution analysis based on file format
-    if args.data.endswith('.npz'):
-        # Load from .npz file
-        npz_data = np.load(args.data)
-
-        if args.model_type.lower() in ['mpralegnet', 'lentimpra', 'multi-oracle']:
-            if 'onehot_test' in npz_data.files:
-                x_test_attr = npz_data['onehot_test']
-                if x_test_attr.shape[-1] == 4:  # (n, 230, 4) format
-                    X_test = torch.tensor(x_test_attr.transpose(0,2,1), dtype=torch.float32)
-                else:
-                    X_test = torch.tensor(x_test_attr, dtype=torch.float32)
-            elif 'x_test' in npz_data.files:
-                X_test = torch.tensor(npz_data['x_test'].transpose(0,2,1), dtype=torch.float32)
-            elif 'X_test' in npz_data.files:
-                X_test = torch.tensor(npz_data['X_test'].transpose(0,2,1), dtype=torch.float32)
-            else:
-                X_test = x_test_tensor.transpose(1,2)  # Use already loaded data as fallback
-        else:
-            if 'x_test' in npz_data.files:
-                X_test = torch.tensor(npz_data['x_test'].transpose(0,2,1), dtype=torch.float32)
-            elif 'X_test' in npz_data.files:
-                X_test = torch.tensor(npz_data['X_test'].transpose(0,2,1), dtype=torch.float32)
-            else:
-                X_test = x_test_tensor.transpose(1,2)  # Use already loaded data as fallback
-
-    else:
-        # Load from .h5 file (existing functionality)
-        data_file = h5py.File(args.data, 'r')
-        if args.model_type.lower() in ['mpralegnet', 'lentimpra', 'multi-oracle']:
-            if 'onehot_test' in data_file.keys():
-                X_test = torch.tensor(np.array(data_file['onehot_test']).transpose(0,2,1), dtype=torch.float32)
-            elif 'X_test' in data_file.keys():
-                X_test = torch.tensor(np.array(data_file['X_test']).transpose(0,2,1), dtype=torch.float32)
-            else:
-                # Fallback to using already loaded x_test_tensor or first key
-                first_key = list(data_file.keys())[0]
-                x_test_data = np.array(data_file[first_key])
-                print(f"Warning: Using key '{first_key}' for X_test data from H5 file")
-                # Check if transpose is needed
-                if x_test_data.ndim == 3:
-                    if x_test_data.shape[-1] == 4 and x_test_data.shape[1] != 4:
-                        X_test = torch.tensor(x_test_data.transpose(0,2,1), dtype=torch.float32)
-                    else:
-                        X_test = torch.tensor(x_test_data, dtype=torch.float32)
-                else:
-                    X_test = x_test_tensor.transpose(1,2)  # Use already loaded data as last fallback
-        else:
-            if 'X_test' in data_file.keys():
-                X_test = torch.tensor(np.array(data_file['X_test']).transpose(0,2,1), dtype=torch.float32)
-            elif 'x_test' in data_file.keys():
-                X_test = torch.tensor(np.array(data_file['x_test']).transpose(0,2,1), dtype=torch.float32)
-            else:
-                # Fallback to first key
-                first_key = list(data_file.keys())[0]
-                x_test_data = np.array(data_file[first_key])
-                print(f"Warning: Using key '{first_key}' for X_test data from H5 file")
-                X_test = torch.tensor(x_test_data.transpose(0,2,1), dtype=torch.float32)
-        data_file.close()
+    X_test_raw, _, _ = load_file_by_type(
+        args.data, 'test', parse_keys(args.test_key), args.model_type
+    )
+    X_test = torch.tensor(X_test_raw.transpose(0,2,1), dtype=torch.float32)
 
     print(f"Loaded {len(x_test)} test sequences")
     print(f"Loaded {len(x_synthetic)} synthetic sequences")
@@ -331,7 +273,7 @@ def load_data_and_model(args):
 def run_batch_analysis(args):
     """Run analysis in batch mode on multiple NPZ files."""
     from utils.batch_helpers import discover_batch_samples, load_batch_sample
-    from utils.helpers import extract_data, numpy_to_tensor, load_oracle_model
+    from utils.helpers import extract_sequences, numpy_to_tensor, load_oracle_model
     
     print("=== D3 Sequence Analysis Pipeline - Batch Mode ===")
     
@@ -366,142 +308,13 @@ def run_batch_analysis(args):
     else:
         oracle_model = load_oracle_model(args.model, args.model_type)
 
-    # Load test and training data from the data file based on file format and model type
-    if args.data.endswith('.npz'):
-        # Load from .npz file
-        npz_data = np.load(args.data)
-
-        if args.model_type.lower() in ['mpralegnet', 'lentimpra', 'multi-oracle']:
-            # Try different naming conventions for test data
-            if 'onehot_test' in npz_data.files:
-                x_test = npz_data['onehot_test']
-                if x_test.shape[-1] == 4:  # (n, 230, 4) format
-                    x_test = np.transpose(x_test, (0, 2, 1))  # Convert to (n, 4, 230)
-            elif 'x_test' in npz_data.files:
-                x_test = npz_data['x_test']
-            elif 'X_test' in npz_data.files:
-                x_test = npz_data['X_test']
-            else:
-                # Fallback to first key
-                first_key = npz_data.files[0]
-                x_test = npz_data[first_key]
-                if x_test.shape[-1] == 4:  # (n, 230, 4) format
-                    x_test = np.transpose(x_test, (0, 2, 1))  # Convert to (n, 4, 230)
-                print(f"Warning: Using key '{first_key}' for test data from NPZ file")
-
-            # Try different naming conventions for training data
-            if 'onehot_train' in npz_data.files:
-                x_train = npz_data['onehot_train']
-                if x_train.shape[-1] == 4:  # (n, 230, 4) format
-                    x_train = np.transpose(x_train, (0, 2, 1))  # Convert to (n, 4, 230)
-            elif 'x_train' in npz_data.files:
-                x_train = npz_data['x_train']
-            elif 'X_train' in npz_data.files:
-                x_train = npz_data['X_train']
-            else:
-                # Fallback to second key if available, otherwise first key
-                if len(npz_data.files) > 1:
-                    second_key = npz_data.files[1]
-                    x_train = npz_data[second_key]
-                    if x_train.shape[-1] == 4:  # (n, 230, 4) format
-                        x_train = np.transpose(x_train, (0, 2, 1))  # Convert to (n, 4, 230)
-                    print(f"Warning: Using key '{second_key}' for training data from NPZ file")
-                else:
-                    first_key = npz_data.files[0]
-                    x_train = npz_data[first_key]
-                    if x_train.shape[-1] == 4:  # (n, 230, 4) format
-                        x_train = np.transpose(x_train, (0, 2, 1))  # Convert to (n, 4, 230)
-                    print(f"Warning: Using key '{first_key}' for training data from NPZ file")
-        else:
-            # DeepSTARR format
-            if 'x_test' in npz_data.files:
-                x_test = npz_data['x_test']
-            elif 'X_test' in npz_data.files:
-                x_test = npz_data['X_test']
-            else:
-                # Fallback to first key
-                first_key = npz_data.files[0]
-                x_test = npz_data[first_key]
-                print(f"Warning: Using key '{first_key}' for test data from NPZ file")
-
-            if 'x_train' in npz_data.files:
-                x_train = npz_data['x_train']
-            elif 'X_train' in npz_data.files:
-                x_train = npz_data['X_train']
-            else:
-                # Fallback to second key if available, otherwise first key
-                if len(npz_data.files) > 1:
-                    second_key = npz_data.files[1]
-                    x_train = npz_data[second_key]
-                    print(f"Warning: Using key '{second_key}' for training data from NPZ file")
-                else:
-                    first_key = npz_data.files[0]
-                    x_train = npz_data[first_key]
-                    print(f"Warning: Using key '{first_key}' for training data from NPZ file")
-
-    else:
-        # Load from .h5 file (existing functionality)
-        with h5py.File(args.data, 'r') as f:
-            if args.model_type.lower() in ['mpralegnet', 'lentimpra', 'multi-oracle']:
-                if 'onehot_test' in f.keys():
-                    x_test = f['onehot_test'][()]
-                    x_test = np.transpose(x_test, (0, 2, 1))  # Convert to (n, 4, 230)
-                elif 'X_test' in f.keys():
-                    x_test = f['X_test'][()]
-                else:
-                    # Fallback to first key
-                    first_key = list(f.keys())[0]
-                    x_test = f[first_key][()]
-                    if x_test.ndim == 3 and x_test.shape[-1] == 4:
-                        x_test = np.transpose(x_test, (0, 2, 1))  # Convert to (n, 4, 230)
-                    print(f"Warning: Using key '{first_key}' for test data from H5 file")
-
-                if 'onehot_train' in f.keys():
-                    x_train = f['onehot_train'][()]
-                    x_train = np.transpose(x_train, (0, 2, 1))  # Convert to (n, 4, 230)
-                elif 'X_train' in f.keys():
-                    x_train = f['X_train'][()]
-                else:
-                    # Fallback to second key if available, otherwise first key
-                    keys = list(f.keys())
-                    if len(keys) > 1:
-                        second_key = keys[1]
-                        x_train = f[second_key][()]
-                        if x_train.ndim == 3 and x_train.shape[-1] == 4:
-                            x_train = np.transpose(x_train, (0, 2, 1))  # Convert to (n, 4, 230)
-                        print(f"Warning: Using key '{second_key}' for training data from H5 file")
-                    else:
-                        first_key = keys[0]
-                        x_train = f[first_key][()]
-                        if x_train.ndim == 3 and x_train.shape[-1] == 4:
-                            x_train = np.transpose(x_train, (0, 2, 1))  # Convert to (n, 4, 230)
-                        print(f"Warning: Using key '{first_key}' for training data from H5 file")
-            else:
-                if 'X_test' in f.keys():
-                    x_test = f['X_test'][()]
-                elif 'x_test' in f.keys():
-                    x_test = f['x_test'][()]
-                else:
-                    # Fallback to first key
-                    first_key = list(f.keys())[0]
-                    x_test = f[first_key][()]
-                    print(f"Warning: Using key '{first_key}' for test data from H5 file")
-
-                if 'X_train' in f.keys():
-                    x_train = f['X_train'][()]
-                elif 'x_train' in f.keys():
-                    x_train = f['x_train'][()]
-                else:
-                    # Fallback to second key if available, otherwise first key
-                    keys = list(f.keys())
-                    if len(keys) > 1:
-                        second_key = keys[1]
-                        x_train = f[second_key][()]
-                        print(f"Warning: Using key '{second_key}' for training data from H5 file")
-                    else:
-                        first_key = keys[0]
-                        x_train = f[first_key][()]
-                        print(f"Warning: Using key '{first_key}' for training data from H5 file")
+    x_test, _, x_train = extract_sequences(
+        samples_file_path=args.data,
+        data_file_path=args.data,
+        test_keys=parse_keys(args.test_key),
+        train_keys=parse_keys(args.train_key),
+        model_type=args.model_type
+    )
 
     x_test_tensor = numpy_to_tensor(x_test)
     x_train_tensor = numpy_to_tensor(x_train)
