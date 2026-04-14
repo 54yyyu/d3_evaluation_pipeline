@@ -5,10 +5,18 @@ import pickle
 import scipy.stats
 
 def predictive_distribution_shift(y_hat_test, y_hat_syn):
-    """Compute Kolmogorov-Smirnov test statistic between predicted distributions."""
-    # Calculate KS statistic for each output dimension and take the mean
-    ks_statistic = scipy.stats.kstest(y_hat_test, y_hat_syn).statistic.mean()
-    return ks_statistic
+    """Mean over features of the 2-sample KS statistic between oracle predictions
+    on real vs. synthetic sequences."""
+    y_hat_test = np.asarray(y_hat_test)
+    y_hat_syn = np.asarray(y_hat_syn)
+    if y_hat_test.ndim == 1:
+        y_hat_test = y_hat_test[:, None]
+        y_hat_syn = y_hat_syn[:, None]
+    F = y_hat_test.shape[1]
+    stats = np.empty(F, dtype=np.float64)
+    for j in range(F):
+        stats[j] = scipy.stats.ks_2samp(y_hat_test[:, j], y_hat_syn[:, j]).statistic
+    return float(stats.mean())
 
 def run_predictive_distribution_shift_analysis(oracle_model, x_test_tensor, x_synthetic_tensor, output_dir=".", sample_name=None, model_type='deepstarr'):
     """
